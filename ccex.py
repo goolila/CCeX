@@ -22,9 +22,9 @@ for d in [input_dir, output_dir]:
 
 def check_permission(input_dir, output_dir):
     if not(os.access(output_dir, os.W_OK)):
-        os.chmod(output_dir, 0777)
+        os.chmod(output_dir, int(0777))
     if not(os.access(input_dir, os.R_OK)):
-        os.chmod(input_dir, 0644)
+        os.chmod(input_dir, int(0644))
 
 if __name__ == "__main__":
     # set and check input & output directories
