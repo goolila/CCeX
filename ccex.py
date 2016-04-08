@@ -29,10 +29,6 @@ def check_permission(input_dir, output_dir):
     if not(os.access(input_dir, os.R_OK)):
         os.chmod(input_dir, int(0744))
 
-script/lib-citation-contexts/lib$/rdfcitation_lib.php : buildTextualMarker
-function buildTextualMarker($pNumber, $refID){
-	return "[xxxcitxxx[[".$pNumber."] [".$refID."]]xxxcitxxx]";
-}
 def build_textual_marker(p_number, ref_id):
     return "[xxxcitxxx[[".p_numberr."] [".ref_id."]]xxxcitxxx]"
 
