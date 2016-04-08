@@ -1,6 +1,6 @@
 import sys
 import os
-from lxml import etree
+from lxml import etree as et
 
 # check if 2 arguments passed
 try:
@@ -57,25 +57,24 @@ for f in files:
         f_path = input_dir + f
         print("Processing %s" %f_path)
 
-        tree = etree.parse(f_path)
-        print tree
+        tree = et.parse(f_path)
 
         """
         Expand cross-refs as multiple adjacent <cross-ref refid=''> elements
         """
         xpath = "//ce:cross-refs"
         cross_refs = tree.xpath(xpath, namespaces={'ce' : 'http://www.elsevier.com/xml/common/dtd'})
-        for cr in cross_refs:
-            cr_parent = cr.getparent()
-            ref_ids = cr.values()
-            for ri in ref_ids:
+        for c in cross_refs:
+            c_parent = c.getparent()
+            ref_ids = c.attrib['refid'].strip().split()
+            for r in ref_ids:
                 CE = "http://www.elsevier.com/xml/common/dtd"
                 NS_MAP = {'ce' : CE}
-                tag = etree.QName(CE, 'cross-refs')
-                exploded_cross_refs = etree.Element(tag, refid=ri nsmap=NS_MAP)
-                exploded_cross_refs.text = cr.text
-                cr.addprevious(exploded_cross_refs)
-            cr_parent.remove(cr)
+                tag = et.QName(CE, 'cross-refs')
+                exploded_cross_refs = et.Element(tag, refid=r, nsmap=NS_MAP)
+                exploded_cross_refs.text = c.text
+                c.addprevious(exploded_cross_refs)
+            c_parent.remove(c)
 
 # Initialize counters
 number_of_papers = 0
