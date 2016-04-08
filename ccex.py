@@ -29,6 +29,13 @@ def check_permission(input_dir, output_dir):
     if not(os.access(input_dir, os.R_OK)):
         os.chmod(input_dir, int(0744))
 
+script/lib-citation-contexts/lib$/rdfcitation_lib.php : buildTextualMarker
+function buildTextualMarker($pNumber, $refID){
+	return "[xxxcitxxx[[".$pNumber."] [".$refID."]]xxxcitxxx]";
+}
+def build_textual_marker(p_number, ref_id):
+    return "[xxxcitxxx[[".p_numberr."] [".ref_id."]]xxxcitxxx]"
+
 namespaces = {'xocs' : 'http://www.elsevier.com/xml/xocs/dtd',
     'ce' : 'http://www.elsevier.com/xml/common/dtd',
     'xmlns' : "http://www.elsevier.com/xml/svapi/article/dtd",
@@ -78,7 +85,7 @@ for f in files:
             c_parent.remove(c)
 
         """
-        Number bib-reference(s)
+        Count bib-reference(s)
         Add an attribute to each cross-ref with the number of the bibliographic reference it denotes.
         """
         xpath_bib_references ="//ce:bib-reference"
@@ -105,7 +112,8 @@ for f in files:
         """
         xpath = "//ce:cross-ref[@positionNumberOfBibliographicReference]"
         cross_refs = tree.xpath(xpath)
-        #cross_ref_info = []
+
+        current_cross_ref_pos = 1
 
         for c in cross_refs:
             current_ref_id = c.attrib["positionNumberOfBibliographicReference"]
@@ -113,7 +121,13 @@ for f in files:
             c_info_beind_added['positionNumber'] = c.attrib["positionNumber"]
             c_info_beind_added['positionNumberOfBibliographicReference'] = current_ref_id
 
-            c_textual_marker_current = buildTextualMarker($currentCrossRefPosition, $crossRef->getAttribute('positionNumberOfBibliographicReference'));
+            c_textual_marker = build_textual_marker(current_cross_ref_pos, c.attrib['positionNumberOfBibliographicReference'])
+
+            text_to_recognize_citation = tree.CREATETEXTNODE(c_textual_marker)
+            c.remove(c.getchildren()[0])
+            c.append(text_to_recognize_citation)
+
+            current_cross_ref_pos += 1
 
 # Initialize counters
 number_of_papers = 0
