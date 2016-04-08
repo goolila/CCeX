@@ -72,9 +72,48 @@ for f in files:
                 NS_MAP = {'ce' : CE}
                 tag = et.QName(CE, 'cross-refs')
                 exploded_cross_refs = et.Element(tag, refid=r, nsmap=NS_MAP)
+                # what should be .text ? [r1, r2] or just [r1]
                 exploded_cross_refs.text = c.text
                 c.addprevious(exploded_cross_refs)
             c_parent.remove(c)
+
+        """
+        Number bib-reference(s)
+        Add an attribute to each cross-ref with the number of the bibliographic reference it denotes.
+        """
+        xpath_bib_references ="//ce:bib-reference"
+        bib_refrences = tree.xpath(xpath_bib_references, namespaces={'ce' : 'http://www.elsevier.com/xml/common/dtd'})
+
+		bib_ref_pos = 1
+        for b in bib_refrences:
+            b.set("positionNumber", bib_ref_pos)
+            # how to pass variable to xpath expression?
+            b_ref_id = b.attrib['id'].split()
+            xpath_cross_ref_bib_pointers = "//ce:cross-ref[@refid='%s']" %b_ref_id
+            cross_ref_bib_pointers = tree.xpath(xpath_cross_ref_bib_pointers, namespaces={'ce' : 'http://www.elsevier.com/xml/common/dtd'})
+
+            for c in cross_ref_bib_pointers:
+                c.set("positionNumberOfBibliographicReference", bib_ref_pos)
+
+            bib_ref_pos += 1
+
+        """
+        Identify InTextPointer (by checking @positionNumberOfBibliographicReference attribute)
+        - Add position attribute
+        - Normalize cross-ref content, by substituting content with a marker
+            - invokes buildTextualMarker() #what is buildTextualMarker??
+        """
+        xpath = "//ce:cross-ref[@positionNumberOfBibliographicReference]"
+        cross_refs = tree.xpath(xpath)
+        #cross_ref_info = []
+
+        for c in cross_refs:
+            current_ref_id = c.attrib["positionNumberOfBibliographicReference"]
+            c_info_beind_added = []
+            c_info_beind_added['positionNumber'] = c.attrib["positionNumber"]
+            c_info_beind_added['positionNumberOfBibliographicReference'] = current_ref_id
+
+            c_textual_marker_current = buildTextualMarker($currentCrossRefPosition, $crossRef->getAttribute('positionNumberOfBibliographicReference'));
 
 # Initialize counters
 number_of_papers = 0
