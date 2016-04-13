@@ -30,9 +30,10 @@ def check_permission(input_dir, output_dir):
         os.chmod(input_dir, int(0744))
 
 def build_textual_marker(p_number, ref_id):
-    return "[xxxcitxxx[[".p_numberr."] [".ref_id."]]xxxcitxxx]"
+    # output : [xxxcitxxx[['.1.'] ['.24.']]xxxcitxxx]
+    return "[xxxcitxxx[['." + str(p_number) + ".'] ['." + ref_id + ".']]xxxcitxxx]"
 
-namespaces = {'xocs' : 'http://www.elsevier.com/xml/xocs/dtd',
+NAMESPACES = {'xocs' : 'http://www.elsevier.com/xml/xocs/dtd',
     'ce' : 'http://www.elsevier.com/xml/common/dtd',
     'xmlns' : "http://www.elsevier.com/xml/svapi/article/dtd",
     'xmlns:xsi' : "http://www.w3.org/2001/XMLSchema-instance",
@@ -63,24 +64,30 @@ for f in files:
         tree = et.parse(f_path)
 
         """
+        STEP 1
         Expand cross-refs as multiple adjacent <cross-ref refid=''> elements
+        - finds 'bib1' in bibliography, sets its positionNumber'1' ->
+            finds all ce:cross-ref with refid = 'bib1' , set its positionNumberofBiblioref same as positionnumber'1'
         """
         xpath = "//ce:cross-refs"
-        cross_refs = tree.xpath(xpath, namespaces={'ce' : 'http://www.elsevier.com/xml/common/dtd'})
+        cross_refs = tree.xpath(xpath, namespaces={'ce': 'http://www.elsevier.com/xml/common/dtd'})
         for c in cross_refs:
             c_parent = c.getparent()
+            c_vals = c.text.strip("[]").split(",")
             ref_ids = c.attrib['refid'].strip().split()
+            i = 0
             for r in ref_ids:
                 CE = "http://www.elsevier.com/xml/common/dtd"
-                NS_MAP = {'ce' : CE}
+                NS_MAP = {'ce': CE}
                 tag = et.QName(CE, 'cross-refs')
                 exploded_cross_refs = et.Element(tag, refid=r, nsmap=NS_MAP)
-                # what should be .text ? [r1, r2] or just [r1]
-                exploded_cross_refs.text = c.text
+                exploded_cross_refs.text = "[" + c_vals[i] + "]"
                 c.addprevious(exploded_cross_refs)
-            c_parent.remove(c)
+                i += 1
+        c_parent.remove(c)
 
         """
+        STEP 2
         Count bib-reference(s)
         Add an attribute to each cross-ref with the number of the bibliographic reference it denotes.
         """
@@ -89,10 +96,9 @@ for f in files:
 
 		bib_ref_pos = 1
         for b in bib_refrences:
-            b.set("positionNumber", bib_ref_pos)
-            # how to pass variable to xpath expression?
+            b.set("positionNumber", str(bib_ref_pos))
             b_ref_id = b.attrib['id'].split()
-            xpath_cross_ref_bib_pointers = "//ce:cross-ref[@refid='%s']" %b_ref_id
+            xpath_cross_ref_bib_pointers = "//ce:cross-ref[@refid='{0}']".format(b_ref_id)
             cross_ref_bib_pointers = tree.xpath(xpath_cross_ref_bib_pointers, namespaces={'ce' : 'http://www.elsevier.com/xml/common/dtd'})
 
             for c in cross_ref_bib_pointers:
@@ -101,35 +107,68 @@ for f in files:
             bib_ref_pos += 1
 
         """
+        STEP 3
         Identify InTextPointer (by checking @positionNumberOfBibliographicReference attribute)
         - Add position attribute
         - Normalize cross-ref content, by substituting content with a marker
-            - invokes buildTextualMarker() #what is buildTextualMarker??
+            - invokes buildTextualMarker()
+        """
+        xpath = "//ce:cross-ref[@positionNumberOfBibliographicReference]"
+        cross_refs = tree.xpath(xpath, namespaces={'ce': 'http://www.elsevier.com/xml/common/dtd'})
+
+        current_cross_ref_pos = 1
+        for c in cross_refs:
+            c.set("positionNumber", str(current_cross_ref_pos))
+            c_textual_marker = build_textual_marker(current_cross_ref_pos, c.attrib['positionNumberOfBibliographicReference'])
+
+            text_to_recognize_citation = et.Element("tmarker")
+            text_to_recognize_citation.text = c_textual_marker
+            c.append(text_to_recognize_citation)
+
+            current_cross_ref_pos += 1
+        # output till here for first refid of first cross-refs pointing to bib24:
+        # <ce:cross-ref refid="bib24" positionNumberOfBibliographicReference="24" positionNumber="1">[24]<tmarker>[xxxcitxxx[['.1.']['.24.']]xxxcitxxx]</tmarker></ce:cross-ref>
+        # c.text( [24] ) can be removed.
+
+        """
+        STEP 4
+        Extract citation contexts and build info array
         """
         xpath = "//ce:cross-ref[@positionNumberOfBibliographicReference]"
         cross_refs = tree.xpath(xpath)
 
-        current_cross_ref_pos = 1
-
         for c in cross_refs:
-            current_ref_id = c.attrib["positionNumberOfBibliographicReference"]
-            c_info_beind_added = []
-            c_info_beind_added['positionNumber'] = c.attrib["positionNumber"]
-            c_info_beind_added['positionNumberOfBibliographicReference'] = current_ref_id
+            current_ref_id = c.attrib['positionNumberOfBibliographicReference']
+            c_ref_info_being_added = {}
+            c_ref_info_being_added['positionNumber'] = c.attrib['positionNumber']
+            c_ref_info_being_added['positionNumberOfBibliographicReference'] = current_ref_id
+            c_textual_marker_current = build_textual_marker(c_ref_info_being_added['positionNumber'], current_ref_id)
 
-            c_textual_marker = build_textual_marker(current_cross_ref_pos, c.attrib['positionNumberOfBibliographicReference'])
+            xpath_block = "//*[self::ce:para or self::ce:note-para or self::ce:simple-para or self::ce:textref or self::xocs:item-toc-section-title or self::entry or self::ce:source or self::ce:section-title][descendant::ce:cross-ref[@positionNumberOfBibliographicReference and @positionNumber='{0}']]".format(c_ref_info_being_added['positionNumber'])
 
-            text_to_recognize_citation = tree.CREATETEXTNODE(c_textual_marker)
-            c.remove(c.getchildren()[0])
-            c.append(text_to_recognize_citation)
+            block_containing_cross_ref = tree.xpath(xpath_block, namespaces=NMSPCS)
 
-            current_cross_ref_pos += 1
+            block_content = et.tostring(block_containing_cross_ref[0], method="text", encoding="unicode")
 
-# Initialize counters
-number_of_papers = 0
-papers_with_no_crossrefs = 0
+        """
+        In case we need to write the tree on a file
+        """
+        # tree.write("OUTPUT_FILE.XML", pretty_print=True)
+
 
 if __name__ == "__main__":
+    # Initialize counters
+    number_of_papers = 0
+    papers_with_no_crossrefs = 0
+
     # set and check input & output directories
-    check_permission(input_dir, output_dir)
+
     # print ("Input: %s\t is OK\nOutput: %s\tis OK" %(input_dir, output_dir))
+
+    # functions to be added:
+    check_permission(input_dir, output_dir)
+    # Open all files in a loop, then for each f in files:
+    # expand_cross_refs(f)
+    # count_bib_ref(f)
+    # identify_intext_pointers(f)
+    # extract_citation_contexts(f)
