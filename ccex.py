@@ -2,6 +2,11 @@ import sys
 import os
 from lxml import etree as et
 
+import nltk.data
+import re
+
+sent_detector = nltk.data.load('tokenizers/punkt/english.pickle')
+
 # check if 2 arguments passed
 try:
     arg1 = sys.argv[1]
@@ -150,17 +155,65 @@ for f in files:
 
             block_content = et.tostring(block_containing_cross_ref[0], method="text", encoding="unicode")
 
+
+            """
+            Tokenize sentences
+            """
+            candidateSentences = sent_detector.tokenize(block_content.strip())
+            # lazy * , output =  [xxxcitxxx[[_'2'_] [_'2'_]]xxxcitxxx] and (2) dynamic linking between pages based on the semantic relations in the underlying knowledge base [6][xxxcitxxx[[_'3'_] [_'6'_]]xxxcitxxx]
+            # non lazy *? , output = only the first occurrance : [xxxcitxxx[[_'2'_] [_'2'_]]xxxcitxxx]
+            marker_regexp = "\[xxxcitxxx\[\[_'.*?'_\] \[_'.*?'_\]\]xxxcitxxx\]"
+
+
+            for i in range(len(candidate_sentences)):
+                if(re.search(marker_regexp, candidate_sentences[i])):
+                    citation_context = candidate_sentences[i]
+                    first_ref_pointer = re.search(marker_regexp, citation_context)
+                    c_ref_info_being_added['sentenceid'] = "sentence-with-in-text-reference-pointer-"+first_ref_pointer.group(0)
+                    # should i set the sentenceid too?
+                    c.set("sentenceid", str("sentence-with-in-text-reference-pointer-")+first_ref_pointer.group(0))
+                    # print first_ref_pointer.group(0): [xxxcitxxx[[_'28'_] [_'16'_]]xxxcitxxx]
+
+                    # this block is out of FOR in php code. but I guess it must be inside it!
+
+                    # $s is the second element of citation_context
+                    # Substitute marker with position of the bibliographic reference
+                    citation_context = re.sub(marker_regexp, r'\g<1>' , citation_context)
+                    # output: [16]28
+                    c_ref_info_being_added['citation_context'] = citation_context
+                    c_ref_info_being_added['DEBUG-blockContent'] = block_content
+                    
+
+        """
+        Debug
+        """
+
+
+		# $citationContextsSummary = getDebugCrossRefsInfoAsString($crossRefsInfo);
+		#
+		# echo "\npositionNumberOfInTextReferencePointer | positionNumberOfBibliographicReference | sentenceid | citationContext | DEBUG-blockContent\n\n";
+		# echo $citationContextsSummary;
+		#
+		# $summaryFullpath = $outputDir."/".SUMMARY_FILENAME;
+		# $fh = fopen($summaryFullpath, 'a') or die("can't open file");
+		# fwrite($fh, $citationContextsSummary);
+		# fclose($fh);
+		#
+		#
+		# // Store names of papers with no cross-ref(s)   (warning)
+		# if (sizeof($crossRefsInfo) == 0)
+		# 	$papersWithNoCrossRefs[] = $filename;
+
         """
         In case we need to write the tree on a file
         """
         # tree.write("OUTPUT_FILE.XML", pretty_print=True)
 
-
 if __name__ == "__main__":
+    # STEP 0 : Open files, set directories
     # Initialize counters
     number_of_papers = 0
     papers_with_no_crossrefs = 0
-
     # set and check input & output directories
 
     # print ("Input: %s\t is OK\nOutput: %s\tis OK" %(input_dir, output_dir))
@@ -168,7 +221,11 @@ if __name__ == "__main__":
     # functions to be added:
     check_permission(input_dir, output_dir)
     # Open all files in a loop, then for each f in files:
+    # STEP 1:
     # expand_cross_refs(f)
+    # STEP 2:
     # count_bib_ref(f)
+    # STEP 3:
     # identify_intext_pointers(f)
+    # STEP 4:
     # extract_citation_contexts(f)
