@@ -5,7 +5,33 @@ from lxml import etree as et
 import nltk.data
 import re
 
+import rdflib
+from rdflib import Graph
+from rdflib.namespace import Namespace, NamespaceManager
+
+# language to be used by nlptk
 sent_detector = nltk.data.load('tokenizers/punkt/english.pickle')
+
+#def
+SEMLANCET_NS = "http://www.semanticlancet.eu/resource/"
+SEMLANCET_URI_PRO_ROLE_AUTHOR = "http://purl.org/spar/pro/author"
+
+
+# rdf namspaces
+frbrNS = Namespace('http://purl.org/vocab/frbr/core#')
+coNS = Namespace('http://purl.org/co/')
+foafNS = Namespace('http://xmlns.com/foaf/0.1/')
+c4oNS = Namespace('http://purl.org/spar/c4o/')
+proNS = Namespace('http://purl.org/spar/pro/')
+docoNS = Namespace('http://purl.org/spar/doco/')
+
+ns_mgr = NamespaceManager(Graph())
+ns_mgr.bind('frbr', frbrNS, override=False)
+ns_mgr.bind('co', coNS, override=False)
+ns_mgr.bind('foaf', foafNS, override=False)
+ns_mgr.bind('c4o', c4oNS, override=False)
+ns_mgr.bind('pro', proNS, override=False)
+ns_mgr.bind('doco', docoNS, override=False)
 
 # check if 2 arguments passed
 try:
@@ -182,27 +208,46 @@ for f in files:
                     # output: [16]28
                     c_ref_info_being_added['citation_context'] = citation_context
                     c_ref_info_being_added['DEBUG-blockContent'] = block_content
-                    
+
+
+        """
+        STEP 5
+        Convert to RDF
+        """
+        from rdflib import Graph
+
+        graph_of_citation_contexts = Graph()
+        graph_of_citation_contexts.namespace_manager = ns_mgr
+        work_URI = SEMLANCET_NS + eid
+        exp_resource = graph_of_citation_contexts.parse(work_URI)
+
+
+
+
+        # $graphOfCitationContexts = buildEmptyGraph();
+        # $workURI = SEMLANCET_NS.$eid;
+        # $expressionURI = $workURI."/version-of-record";
+        # $expressionResource = $graphOfCitationContexts->resource($expressionURI);
+        #
+        # define("SEMLANCET_NS", "http://www.semanticlancet.eu/resource/");
+        # define("SEMLANCET_URI_PRO_ROLE_AUTHOR","http://purl.org/spar/pro/author");
+        #
+        # function buildEmptyGraph(){
+        	$graph = new EasyRdf_Graph();
+        	EasyRdf_Namespace::set('frbr', 'http://purl.org/vocab/frbr/core#');
+        	EasyRdf_Namespace::set('co', 'http://purl.org/co/');
+        	EasyRdf_Namespace::set('foaf', 'http://xmlns.com/foaf/0.1/');
+        	EasyRdf_Namespace::set('xsd', 'http://www.w3.org/2001/XMLSchema#');
+        	EasyRdf_Namespace::set('c4o', 'http://purl.org/spar/c4o/');
+        	EasyRdf_Namespace::set('pro', 'http://purl.org/spar/pro/');
+        	EasyRdf_Namespace::set('doco', 'http://purl.org/spar/doco/');
+        # 	return $graph;
+        # }
 
         """
         Debug
         """
 
-
-		# $citationContextsSummary = getDebugCrossRefsInfoAsString($crossRefsInfo);
-		#
-		# echo "\npositionNumberOfInTextReferencePointer | positionNumberOfBibliographicReference | sentenceid | citationContext | DEBUG-blockContent\n\n";
-		# echo $citationContextsSummary;
-		#
-		# $summaryFullpath = $outputDir."/".SUMMARY_FILENAME;
-		# $fh = fopen($summaryFullpath, 'a') or die("can't open file");
-		# fwrite($fh, $citationContextsSummary);
-		# fclose($fh);
-		#
-		#
-		# // Store names of papers with no cross-ref(s)   (warning)
-		# if (sizeof($crossRefsInfo) == 0)
-		# 	$papersWithNoCrossRefs[] = $filename;
 
         """
         In case we need to write the tree on a file
