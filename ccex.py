@@ -1,13 +1,17 @@
-import sys
 import os
+import sys
+import logging
+
 from lxml import etree as et
 
 import nltk.data
 import re
 
-import rdflib
-from rdflib import Graph
+from rdflib import Graph, URIRef, Literal
 from rdflib.namespace import Namespace, NamespaceManager
+
+# available logging for RDF
+logging.basicConfig(level=logging.INFO)
 
 # language to be used by nlptk
 sent_detector = nltk.data.load('tokenizers/punkt/english.pickle')
@@ -16,6 +20,8 @@ sent_detector = nltk.data.load('tokenizers/punkt/english.pickle')
 SEMLANCET_NS = "http://www.semanticlancet.eu/resource/"
 SEMLANCET_URI_PRO_ROLE_AUTHOR = "http://purl.org/spar/pro/author"
 
+RDF_EXTENSION = "ttl"
+RDF_SERIALIZATION_FORMAT = "turtle"
 
 # rdf namspaces
 frbrNS = Namespace('http://purl.org/vocab/frbr/core#')
@@ -32,6 +38,12 @@ ns_mgr.bind('foaf', foafNS, override=False)
 ns_mgr.bind('c4o', c4oNS, override=False)
 ns_mgr.bind('pro', proNS, override=False)
 ns_mgr.bind('doco', docoNS, override=False)
+
+# simple namespace def
+c4o = Namespace('http://purl.org/spar/c4o/')
+frbr = Namespace('http://purl.org/vocab/frbr/core#')
+doco = Namespace('http://purl.org/spar/doco/')
+
 
 # check if 2 arguments passed
 try:
@@ -165,6 +177,8 @@ for f in files:
         STEP 4
         Extract citation contexts and build info array
         """
+        c_ref_info = []
+
         xpath = "//ce:cross-ref[@positionNumberOfBibliographicReference]"
         cross_refs = tree.xpath(xpath)
 
@@ -180,7 +194,6 @@ for f in files:
             block_containing_cross_ref = tree.xpath(xpath_block, namespaces=NMSPCS)
 
             block_content = et.tostring(block_containing_cross_ref[0], method="text", encoding="unicode")
-
 
             """
             Tokenize sentences
@@ -210,44 +223,56 @@ for f in files:
                     c_ref_info_being_added['DEBUG-blockContent'] = block_content
 
 
+        c_ref_info.append(c_ref_info_being_added)
+
         """
         STEP 5
         Convert to RDF
         """
-        from rdflib import Graph
-
         graph_of_citation_contexts = Graph()
         graph_of_citation_contexts.namespace_manager = ns_mgr
-        work_URI = SEMLANCET_NS + eid
-        exp_resource = graph_of_citation_contexts.parse(work_URI)
+        work_uri = SEMLANCET_NS + eid # http://www.semanticlancet.eu/resource/1-s2.0-S157082680300009X
+        exp_uri = work_uri + "/version-of-record" # http://www.semanticlancet.eu/resource/1-s2.0-S157082680300009X/version-of-record
 
+        for c in c_ref_info:
+            # http://www.semanticlancet.eu/resource/1-s2.0-S157082680300009X/version-of-record/reference-list/NUMBER/reference
+            ref_uri = URIRef(exp_uri + "/reference-list/" + c['positionNumberOfBibliographicReference'] + "/reference")
+            # http://www.semanticlancet.eu/resource/1-s2.0-S157082680300009X/version-of-record/in-text-reference-pointer/positionNumber
+            in_text_pointer_uri = URIRef(exp_uri + "/in-text-reference-pointer-" + c['positionNumber'])
+            # http://www.semanticlancet.eu/resource/1-s2.0-S157082680300009X/version-of-record/sentenceid
+            citation_sentence_uri = URIRef(exp_uri + "/" + c['sentenceid'])
 
+            graph_of_citation_contexts.add( (in_text_pointer_uri, RDF.type, c4o.InTextReferencePointer) )
+            graph_of_citation_contexts.add( (in_text_pointer_uri, c4o.hasContent, Literal("[" + c['positionNumberOfBibliographicReference'] + "]") ) )
+            graph_of_citation_contexts.add( (in_text_pointer_uri, c4o.denotes, ref_uri) )
 
+            graph_of_citation_contexts.add( (citation_sentence_uri, RDF.type, doco.Sentence) )
+            graph_of_citation_contexts.add( (citation_sentence_uri, c4o.hasContent, Literal(c['citation_context'])) )
+            graph_of_citation_contexts.add( (citation_sentence_uri, frbr.partOf, exp_resource) )
+            graph_of_citation_contexts.add( (citation_sentence_uri, frbr.part, in_text_pointer_uri) )
+            graph_of_citation_contexts.add( (exp_resource, frbr.part, citation_sentence_uri))
 
-        # $graphOfCitationContexts = buildEmptyGraph();
-        # $workURI = SEMLANCET_NS.$eid;
-        # $expressionURI = $workURI."/version-of-record";
-        # $expressionResource = $graphOfCitationContexts->resource($expressionURI);
-        #
-        # define("SEMLANCET_NS", "http://www.semanticlancet.eu/resource/");
-        # define("SEMLANCET_URI_PRO_ROLE_AUTHOR","http://purl.org/spar/pro/author");
-        #
-        # function buildEmptyGraph(){
-        	$graph = new EasyRdf_Graph();
-        	EasyRdf_Namespace::set('frbr', 'http://purl.org/vocab/frbr/core#');
-        	EasyRdf_Namespace::set('co', 'http://purl.org/co/');
-        	EasyRdf_Namespace::set('foaf', 'http://xmlns.com/foaf/0.1/');
-        	EasyRdf_Namespace::set('xsd', 'http://www.w3.org/2001/XMLSchema#');
-        	EasyRdf_Namespace::set('c4o', 'http://purl.org/spar/c4o/');
-        	EasyRdf_Namespace::set('pro', 'http://purl.org/spar/pro/');
-        	EasyRdf_Namespace::set('doco', 'http://purl.org/spar/doco/');
-        # 	return $graph;
-        # }
+            graph_of_citation_contexts.add( (in_text_pointer_uri, c4o.hasContext, citation_sentence_uri) )
+            graph_of_citation_contexts.add( (in_text_pointer_uri, frbr.partOf, citation_sentence_uri) )
+
+        """
+        STEP 6
+        Serialize in a file
+        """
+        # g_citation_filename = output_dir + "/" + eid + "." + RDF_EXTENSION
+        # open file
+
+        # write to file serilize(format = RDF_SERIALIZATION_FORMAT)
+        # g.serialize(destination='output.txt', format='turtle'))
+
+		# $graphOfCitationContextsFilename = $outputDir."/".$eid.".".RDF_EXTENSION;
+		# $hgCitationContexts = fopen($graphOfCitationContextsFilename,"w");
+		# fwrite($hgCitationContexts, $graphOfCitationContexts->serialise(RDF_SERIALIZATION_FORMAT));
+		# fclose($hgCitationContexts);
 
         """
         Debug
         """
-
 
         """
         In case we need to write the tree on a file
