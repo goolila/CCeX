@@ -10,6 +10,13 @@ import re
 from rdflib import Graph, URIRef, Literal
 from rdflib.namespace import Namespace, NamespaceManager
 
+# from datetime import datetime
+# t1 = datetime.now()
+# t2 = datetime.now()
+# delta = t1 - t2
+# print delta.seconds/1E6
+
+
 # available logging for RDF
 logging.basicConfig(level=logging.INFO)
 
@@ -19,6 +26,8 @@ sent_detector = nltk.data.load('tokenizers/punkt/english.pickle')
 #def
 SEMLANCET_NS = "http://www.semanticlancet.eu/resource/"
 SEMLANCET_URI_PRO_ROLE_AUTHOR = "http://purl.org/spar/pro/author"
+
+SUMMARY_FILENAME = "CITATION_CONTEXTS_SUMMARY.csv"
 
 RDF_EXTENSION = "ttl"
 RDF_SERIALIZATION_FORMAT = "turtle"
@@ -116,13 +125,14 @@ for f in files:
         cross_refs = tree.xpath(xpath, namespaces={'ce': 'http://www.elsevier.com/xml/common/dtd'})
         for c in cross_refs:
             c_parent = c.getparent()
-            c_vals = c.text.strip("[]").split(",")
+            c_val = c.text.strip("[]")
+            c_vals = re.split(',|and', c_val)
             ref_ids = c.attrib['refid'].strip().split()
             i = 0
             for r in ref_ids:
                 CE = "http://www.elsevier.com/xml/common/dtd"
                 NS_MAP = {'ce': CE}
-                tag = et.QName(CE, 'cross-refs')
+                tag = et.QName(CE, 'cross-ref')
                 exploded_cross_refs = et.Element(tag, refid=r, nsmap=NS_MAP)
                 exploded_cross_refs.text = "[" + c_vals[i] + "]"
                 c.addprevious(exploded_cross_refs)
@@ -201,16 +211,19 @@ for f in files:
             candidateSentences = sent_detector.tokenize(block_content.strip())
             # lazy * , output =  [xxxcitxxx[[_'2'_] [_'2'_]]xxxcitxxx] and (2) dynamic linking between pages based on the semantic relations in the underlying knowledge base [6][xxxcitxxx[[_'3'_] [_'6'_]]xxxcitxxx]
             # non lazy *? , output = only the first occurrance : [xxxcitxxx[[_'2'_] [_'2'_]]xxxcitxxx]
-            marker_regexp = "\[xxxcitxxx\[\[_'.*?'_\] \[_'.*?'_\]\]xxxcitxxx\]"
+            marker_regexp = "\[xxxcitxxx\[\[_'.*?'_\]\[_'.*?'_\]\]xxxcitxxx\]"
 
 
             for i in range(len(candidate_sentences)):
                 if(re.search(marker_regexp, candidate_sentences[i])):
                     citation_context = candidate_sentences[i]
-                    first_ref_pointer = re.search(marker_regexp, citation_context)
-                    c_ref_info_being_added['sentenceid'] = "sentence-with-in-text-reference-pointer-"+first_ref_pointer.group(0)
+                    first_ref_pointer = re.findall("\[_'.*?'_\]", citation_context)
+                    c_ref_info_being_added['sentenceid'] = "sentence-with-in-text-reference-pointer-"+first_ref_pointer[1].strip("[]_'") # 0=position  or 1=refid?
+
+                    # first_ref_pointer = re.search(marker_regexp, citation_context)
+                    # c_ref_info_being_added['sentenceid'] = "sentence-with-in-text-reference-pointer-"+first_ref_pointer.group(0)
                     # should i set the sentenceid too?
-                    c.set("sentenceid", str("sentence-with-in-text-reference-pointer-")+first_ref_pointer.group(0))
+                    # c.set("sentenceid", str("sentence-with-in-text-reference-pointer-")+first_ref_pointer.group(0))
                     # print first_ref_pointer.group(0): [xxxcitxxx[[_'28'_] [_'16'_]]xxxcitxxx]
 
                     # this block is out of FOR in php code. but I guess it must be inside it!
@@ -220,7 +233,7 @@ for f in files:
                     citation_context = re.sub(marker_regexp, r'\g<1>' , citation_context)
                     # output: [16]28
                     c_ref_info_being_added['citation_context'] = citation_context
-                    c_ref_info_being_added['DEBUG-blockContent'] = block_content
+                    c_ref_info_being_added['DEBUG_blockContent'] = block_content
 
 
         c_ref_info.append(c_ref_info_being_added)
@@ -259,16 +272,10 @@ for f in files:
         STEP 6
         Serialize in a file
         """
-        # g_citation_filename = output_dir + "/" + eid + "." + RDF_EXTENSION
-        # open file
+        g_citation_filename = os.path.join(output_dir, eid + "." + RDF_EXTENSION )
+        g.serialize(destination=g_citation_filename, format='turtle'))
+        number_of_papers += 1
 
-        # write to file serilize(format = RDF_SERIALIZATION_FORMAT)
-        # g.serialize(destination='output.txt', format='turtle'))
-
-		# $graphOfCitationContextsFilename = $outputDir."/".$eid.".".RDF_EXTENSION;
-		# $hgCitationContexts = fopen($graphOfCitationContextsFilename,"w");
-		# fwrite($hgCitationContexts, $graphOfCitationContexts->serialise(RDF_SERIALIZATION_FORMAT));
-		# fclose($hgCitationContexts);
 
         """
         Debug
@@ -278,6 +285,18 @@ for f in files:
         In case we need to write the tree on a file
         """
         # tree.write("OUTPUT_FILE.XML", pretty_print=True)
+
+        """"
+        Summary
+        """"
+        for c in c_ref_info:
+            citation_contexts_summary = c['positionNumber'] + "|" + c['positionNumberOfBibliographicReference'] + "|" + c['sentenceid'] + "|" + c['citation_context'] + "|" + c['DEBUG_blockContent']
+
+    	summary_file = os.path.join(output_dir, SUMMARY_FILENAME)
+    	f = open(summary_file, 'w')
+    	f.write(citation_contexts_summary)
+    	f.close()
+
 
 if __name__ == "__main__":
     # STEP 0 : Open files, set directories
@@ -299,3 +318,7 @@ if __name__ == "__main__":
     # identify_intext_pointers(f)
     # STEP 4:
     # extract_citation_contexts(f)
+    # STEP 5:
+    # convert_to_RDF(f)
+
+    print("%s Papers have been procced" %number_of_papers)
