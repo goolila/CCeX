@@ -8,14 +8,11 @@ import nltk.data
 import re
 
 from rdflib import Graph, URIRef, Literal
-from rdflib.namespace import Namespace, NamespaceManager
+from rdflib.namespace import Namespace, NamespaceManager, RDF
 
-# from datetime import datetime
-# t1 = datetime.now()
-# t2 = datetime.now()
-# delta = t1 - t2
-# print delta.seconds/1E6
+from datetime import datetime
 
+number_of_papers =0
 
 # available logging for RDF
 logging.basicConfig(level=logging.INFO)
@@ -85,7 +82,7 @@ def build_textual_marker(p_number, ref_id):
     # output : [xxxcitxxx[['.1.'] ['.24.']]xxxcitxxx]
     return "[xxxcitxxx[['." + str(p_number) + ".'] ['." + ref_id + ".']]xxxcitxxx]"
 
-NAMESPACES = {'xocs' : 'http://www.elsevier.com/xml/xocs/dtd',
+NMSPCS = {'xocs' : 'http://www.elsevier.com/xml/xocs/dtd',
     'ce' : 'http://www.elsevier.com/xml/common/dtd',
     'xmlns' : "http://www.elsevier.com/xml/svapi/article/dtd",
     'xmlns:xsi' : "http://www.w3.org/2001/XMLSchema-instance",
@@ -102,12 +99,12 @@ NAMESPACES = {'xocs' : 'http://www.elsevier.com/xml/xocs/dtd',
     'xmlns:cals' : "http://www.elsevier.com/xml/common/cals/dtd",
 }
 
+t1 = datetime.now()
 files = os.listdir(input_dir)
 
 for f in files:
     # f = 1-s2.0-S157082680400006X-full.xml
     f_name, f_extension = os.path.splitext(f)
-    print f_name, f_extension
     if (f_extension == ".xml" and f_name[-5:] == "-full"):
         eid = f_name[0:-5] #1-s2.0-S157082680300009X
         f_path = input_dir + f
@@ -134,10 +131,10 @@ for f in files:
                 NS_MAP = {'ce': CE}
                 tag = et.QName(CE, 'cross-ref')
                 exploded_cross_refs = et.Element(tag, refid=r, nsmap=NS_MAP)
-                exploded_cross_refs.text = "[" + c_vals[i] + "]"
+                exploded_cross_refs.text = "[" + c_vals[i] + "]" # ERRO GENERATOR
                 c.addprevious(exploded_cross_refs)
                 i += 1
-        c_parent.remove(c)
+            c_parent.remove(c) # ERROR GENERATOR
 
         """
         STEP 2
@@ -147,15 +144,15 @@ for f in files:
         xpath_bib_references ="//ce:bib-reference"
         bib_refrences = tree.xpath(xpath_bib_references, namespaces={'ce' : 'http://www.elsevier.com/xml/common/dtd'})
 
-		bib_ref_pos = 1
+        bib_ref_pos = 1
         for b in bib_refrences:
             b.set("positionNumber", str(bib_ref_pos))
-            b_ref_id = b.attrib['id'].split()
+            b_ref_id = b.attrib['id'].split()[0]
             xpath_cross_ref_bib_pointers = "//ce:cross-ref[@refid='{0}']".format(b_ref_id)
-            cross_ref_bib_pointers = tree.xpath(xpath_cross_ref_bib_pointers, namespaces={'ce' : 'http://www.elsevier.com/xml/common/dtd'})
+            cross_ref_bib_pointers = tree.xpath(xpath_cross_ref_bib_pointers, namespaces=NMSPCS)
 
             for c in cross_ref_bib_pointers:
-                c.set("positionNumberOfBibliographicReference", bib_ref_pos)
+                c.set("positionNumberOfBibliographicReference", str(bib_ref_pos))
 
             bib_ref_pos += 1
 
@@ -190,7 +187,7 @@ for f in files:
         c_ref_info = []
 
         xpath = "//ce:cross-ref[@positionNumberOfBibliographicReference]"
-        cross_refs = tree.xpath(xpath)
+        cross_refs = tree.xpath(xpath, namespaces={'ce': 'http://www.elsevier.com/xml/common/dtd'})
 
         for c in cross_refs:
             current_ref_id = c.attrib['positionNumberOfBibliographicReference']
@@ -208,17 +205,18 @@ for f in files:
             """
             Tokenize sentences
             """
-            candidateSentences = sent_detector.tokenize(block_content.strip())
+            candidate_sentences = sent_detector.tokenize(block_content.strip())
             # lazy * , output =  [xxxcitxxx[[_'2'_] [_'2'_]]xxxcitxxx] and (2) dynamic linking between pages based on the semantic relations in the underlying knowledge base [6][xxxcitxxx[[_'3'_] [_'6'_]]xxxcitxxx]
             # non lazy *? , output = only the first occurrance : [xxxcitxxx[[_'2'_] [_'2'_]]xxxcitxxx]
-            marker_regexp = "\[xxxcitxxx\[\[_'.*?'_\]\[_'.*?'_\]\]xxxcitxxx\]"
+            marker_regexp = "\[xxxcitxxx\[\[_'(?P<pos>.*?)'_\]\[_'.*?'_\]\]xxxcitxxx\]"
 
 
             for i in range(len(candidate_sentences)):
                 if(re.search(marker_regexp, candidate_sentences[i])):
                     citation_context = candidate_sentences[i]
                     first_ref_pointer = re.findall("\[_'.*?'_\]", citation_context)
-                    c_ref_info_being_added['sentenceid'] = "sentence-with-in-text-reference-pointer-"+first_ref_pointer[1].strip("[]_'") # 0=position  or 1=refid?
+                    c_ref_info_being_added['sentence_id'] = "sentence-with-in-text-reference-pointer-" + first_ref_pointer[1].strip("[]_'")
+                    print c_ref_info_being_added['sentence_id'] # 0=position  or 1=refid?
 
                     # first_ref_pointer = re.search(marker_regexp, citation_context)
                     # c_ref_info_being_added['sentenceid'] = "sentence-with-in-text-reference-pointer-"+first_ref_pointer.group(0)
@@ -236,7 +234,9 @@ for f in files:
                     c_ref_info_being_added['DEBUG_blockContent'] = block_content
 
 
-        c_ref_info.append(c_ref_info_being_added)
+                c_ref_info.append(c_ref_info_being_added)
+
+        print c_ref_info
 
         """
         STEP 5
@@ -246,6 +246,7 @@ for f in files:
         graph_of_citation_contexts.namespace_manager = ns_mgr
         work_uri = SEMLANCET_NS + eid # http://www.semanticlancet.eu/resource/1-s2.0-S157082680300009X
         exp_uri = work_uri + "/version-of-record" # http://www.semanticlancet.eu/resource/1-s2.0-S157082680300009X/version-of-record
+        exp_resource = URIRef(exp_uri)
 
         for c in c_ref_info:
             # http://www.semanticlancet.eu/resource/1-s2.0-S157082680300009X/version-of-record/reference-list/NUMBER/reference
@@ -253,14 +254,14 @@ for f in files:
             # http://www.semanticlancet.eu/resource/1-s2.0-S157082680300009X/version-of-record/in-text-reference-pointer/positionNumber
             in_text_pointer_uri = URIRef(exp_uri + "/in-text-reference-pointer-" + c['positionNumber'])
             # http://www.semanticlancet.eu/resource/1-s2.0-S157082680300009X/version-of-record/sentenceid
-            citation_sentence_uri = URIRef(exp_uri + "/" + c['sentenceid'])
+            citation_sentence_uri = URIRef(exp_uri + "/") #sentence_id
 
             graph_of_citation_contexts.add( (in_text_pointer_uri, RDF.type, c4o.InTextReferencePointer) )
             graph_of_citation_contexts.add( (in_text_pointer_uri, c4o.hasContent, Literal("[" + c['positionNumberOfBibliographicReference'] + "]") ) )
             graph_of_citation_contexts.add( (in_text_pointer_uri, c4o.denotes, ref_uri) )
 
             graph_of_citation_contexts.add( (citation_sentence_uri, RDF.type, doco.Sentence) )
-            graph_of_citation_contexts.add( (citation_sentence_uri, c4o.hasContent, Literal(c['citation_context'])) )
+            graph_of_citation_contexts.add( (citation_sentence_uri, c4o.hasContent, Literal("AAA")) ) #c['citation_context'] not AAA
             graph_of_citation_contexts.add( (citation_sentence_uri, frbr.partOf, exp_resource) )
             graph_of_citation_contexts.add( (citation_sentence_uri, frbr.part, in_text_pointer_uri) )
             graph_of_citation_contexts.add( (exp_resource, frbr.part, citation_sentence_uri))
@@ -273,7 +274,7 @@ for f in files:
         Serialize in a file
         """
         g_citation_filename = os.path.join(output_dir, eid + "." + RDF_EXTENSION )
-        g.serialize(destination=g_citation_filename, format='turtle'))
+        graph_of_citation_contexts.serialize(destination=g_citation_filename, format='turtle')
         number_of_papers += 1
 
 
@@ -288,20 +289,24 @@ for f in files:
 
         """"
         Summary
-        """"
+        """
         for c in c_ref_info:
-            citation_contexts_summary = c['positionNumber'] + "|" + c['positionNumberOfBibliographicReference'] + "|" + c['sentenceid'] + "|" + c['citation_context'] + "|" + c['DEBUG_blockContent']
+            citation_contexts_summary = c['positionNumber'] + "|" + c['positionNumberOfBibliographicReference'] + "|"
 
     	summary_file = os.path.join(output_dir, SUMMARY_FILENAME)
     	f = open(summary_file, 'w')
     	f.write(citation_contexts_summary)
     	f.close()
+        t2 = datetime.now()
+
+
 
 
 if __name__ == "__main__":
+
+
     # STEP 0 : Open files, set directories
     # Initialize counters
-    number_of_papers = 0
     papers_with_no_crossrefs = 0
     # set and check input & output directories
 
@@ -321,4 +326,7 @@ if __name__ == "__main__":
     # STEP 5:
     # convert_to_RDF(f)
 
+    delta = t1 - t2
+    print str(number_of_papers) + "\n\n"
+    print delta.seconds/1E6
     print("%s Papers have been procced" %number_of_papers)
