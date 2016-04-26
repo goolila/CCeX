@@ -10,8 +10,7 @@ import re
 from rdflib import Graph, URIRef, Literal
 from rdflib.namespace import Namespace, NamespaceManager, RDF
 
-from datetime import datetime
-
+import time
 number_of_papers =0
 
 # available logging for RDF
@@ -80,7 +79,7 @@ def check_permission(input_dir, output_dir):
 
 def build_textual_marker(p_number, ref_id):
     # output : [xxxcitxxx[['.1.'] ['.24.']]xxxcitxxx]
-    return "[xxxcitxxx[['." + str(p_number) + ".'] ['." + ref_id + ".']]xxxcitxxx]"
+    return "[xxxcitxxx[[_'" + str(p_number) + "'_][_'" + ref_id + "'_]]xxxcitxxx]"
 
 NMSPCS = {'xocs' : 'http://www.elsevier.com/xml/xocs/dtd',
     'ce' : 'http://www.elsevier.com/xml/common/dtd',
@@ -99,16 +98,17 @@ NMSPCS = {'xocs' : 'http://www.elsevier.com/xml/xocs/dtd',
     'xmlns:cals' : "http://www.elsevier.com/xml/common/cals/dtd",
 }
 
-t1 = datetime.now()
 files = os.listdir(input_dir)
+total_time = 0
 
 for f in files:
     # f = 1-s2.0-S157082680400006X-full.xml
+    start_time = time.time()
     f_name, f_extension = os.path.splitext(f)
     if (f_extension == ".xml" and f_name[-5:] == "-full"):
         eid = f_name[0:-5] #1-s2.0-S157082680300009X
         f_path = input_dir + f
-        print("Processing %s" %f_path)
+        print("Processing %s" %f)
 
         tree = et.parse(f_path)
 
@@ -123,18 +123,22 @@ for f in files:
         for c in cross_refs:
             c_parent = c.getparent()
             c_val = c.text.strip("[]")
-            c_vals = re.split(',|and', c_val)
-            ref_ids = c.attrib['refid'].strip().split()
-            i = 0
-            for r in ref_ids:
-                CE = "http://www.elsevier.com/xml/common/dtd"
-                NS_MAP = {'ce': CE}
-                tag = et.QName(CE, 'cross-ref')
-                exploded_cross_refs = et.Element(tag, refid=r, nsmap=NS_MAP)
-                exploded_cross_refs.text = "[" + c_vals[i] + "]" # ERRO GENERATOR
-                c.addprevious(exploded_cross_refs)
-                i += 1
-            c_parent.remove(c) # ERROR GENERATOR
+            if c_val:
+                c_vals = re.split(',|and', c_val)
+                ref_ids = c.attrib['refid'].strip().split()
+                if (len(c_vals) == len(ref_ids)):
+                    i = 0
+                    for r in ref_ids:
+                        CE = "http://www.elsevier.com/xml/common/dtd"
+                        NS_MAP = {'ce': CE}
+                        tag = et.QName(CE, 'cross-ref')
+                        exploded_cross_refs = et.Element(tag, refid=r, nsmap=NS_MAP)
+                        exploded_cross_refs.text = "[" + c_vals[i] + "]" # ERRO GENERATOR
+                        c.addprevious(exploded_cross_refs)
+                        i += 1
+                    c_parent.remove(c) # ERROR GENERATOR
+                # else:
+                #     print("# of refids is ne c_vals")
 
         """
         STEP 2
@@ -184,10 +188,11 @@ for f in files:
         STEP 4
         Extract citation contexts and build info array
         """
-        c_ref_info = []
+
 
         xpath = "//ce:cross-ref[@positionNumberOfBibliographicReference]"
         cross_refs = tree.xpath(xpath, namespaces={'ce': 'http://www.elsevier.com/xml/common/dtd'})
+        c_ref_info = []
 
         for c in cross_refs:
             current_ref_id = c.attrib['positionNumberOfBibliographicReference']
@@ -197,10 +202,9 @@ for f in files:
             c_textual_marker_current = build_textual_marker(c_ref_info_being_added['positionNumber'], current_ref_id)
 
             xpath_block = "//*[self::ce:para or self::ce:note-para or self::ce:simple-para or self::ce:textref or self::xocs:item-toc-section-title or self::entry or self::ce:source or self::ce:section-title][descendant::ce:cross-ref[@positionNumberOfBibliographicReference and @positionNumber='{0}']]".format(c_ref_info_being_added['positionNumber'])
-
             block_containing_cross_ref = tree.xpath(xpath_block, namespaces=NMSPCS)
 
-            block_content = et.tostring(block_containing_cross_ref[0], method="text", encoding="unicode")
+            block_content = et.tostring(block_containing_cross_ref[0], method="text", encoding="unicode") # caused error on S1570826807000133, S1570826808000218
 
             """
             Tokenize sentences
@@ -212,31 +216,17 @@ for f in files:
 
 
             for i in range(len(candidate_sentences)):
-                if(re.search(marker_regexp, candidate_sentences[i])):
+                if c_textual_marker_current in candidate_sentences[i]:
                     citation_context = candidate_sentences[i]
-                    first_ref_pointer = re.findall("\[_'.*?'_\]", citation_context)
-                    c_ref_info_being_added['sentence_id'] = "sentence-with-in-text-reference-pointer-" + first_ref_pointer[1].strip("[]_'")
-                    print c_ref_info_being_added['sentence_id'] # 0=position  or 1=refid?
-
-                    # first_ref_pointer = re.search(marker_regexp, citation_context)
-                    # c_ref_info_being_added['sentenceid'] = "sentence-with-in-text-reference-pointer-"+first_ref_pointer.group(0)
-                    # should i set the sentenceid too?
-                    # c.set("sentenceid", str("sentence-with-in-text-reference-pointer-")+first_ref_pointer.group(0))
-                    # print first_ref_pointer.group(0): [xxxcitxxx[[_'28'_] [_'16'_]]xxxcitxxx]
-
-                    # this block is out of FOR in php code. but I guess it must be inside it!
-
-                    # $s is the second element of citation_context
-                    # Substitute marker with position of the bibliographic reference
-                    citation_context = re.sub(marker_regexp, r'\g<1>' , citation_context)
-                    # output: [16]28
+                    ref_pointers = re.findall("\[_'.*?'_\]", citation_context)
+                    first_ref_pointer = ref_pointers[0].strip("[]_'")
+                    c_ref_info_being_added['sentence_id'] = "sentence-with-in-text-reference-pointer-"+first_ref_pointer[0].strip("[]_'")
+                    # citation_context = re.sub(marker_regexp, r'\g<1>', citation_context)
+                    citation_context = re.sub(marker_regexp, "" , citation_context)
                     c_ref_info_being_added['citation_context'] = citation_context
-                    c_ref_info_being_added['DEBUG_blockContent'] = block_content
-
-
-                c_ref_info.append(c_ref_info_being_added)
-
-        print c_ref_info
+                    c_ref_info_being_added['DEBUG-blockContent'] = block_content
+            c_ref_info.append(c_ref_info_being_added)
+            # print c_ref_info
 
         """
         STEP 5
@@ -254,14 +244,14 @@ for f in files:
             # http://www.semanticlancet.eu/resource/1-s2.0-S157082680300009X/version-of-record/in-text-reference-pointer/positionNumber
             in_text_pointer_uri = URIRef(exp_uri + "/in-text-reference-pointer-" + c['positionNumber'])
             # http://www.semanticlancet.eu/resource/1-s2.0-S157082680300009X/version-of-record/sentenceid
-            citation_sentence_uri = URIRef(exp_uri + "/") #sentence_id
+            citation_sentence_uri = URIRef(exp_uri + "/" + c['sentence_id'])
 
             graph_of_citation_contexts.add( (in_text_pointer_uri, RDF.type, c4o.InTextReferencePointer) )
             graph_of_citation_contexts.add( (in_text_pointer_uri, c4o.hasContent, Literal("[" + c['positionNumberOfBibliographicReference'] + "]") ) )
             graph_of_citation_contexts.add( (in_text_pointer_uri, c4o.denotes, ref_uri) )
 
             graph_of_citation_contexts.add( (citation_sentence_uri, RDF.type, doco.Sentence) )
-            graph_of_citation_contexts.add( (citation_sentence_uri, c4o.hasContent, Literal("AAA")) ) #c['citation_context'] not AAA
+            graph_of_citation_contexts.add( (citation_sentence_uri, c4o.hasContent, Literal(c['citation_context'])) )
             graph_of_citation_contexts.add( (citation_sentence_uri, frbr.partOf, exp_resource) )
             graph_of_citation_contexts.add( (citation_sentence_uri, frbr.part, in_text_pointer_uri) )
             graph_of_citation_contexts.add( (exp_resource, frbr.part, citation_sentence_uri))
@@ -276,6 +266,11 @@ for f in files:
         g_citation_filename = os.path.join(output_dir, eid + "." + RDF_EXTENSION )
         graph_of_citation_contexts.serialize(destination=g_citation_filename, format='turtle')
         number_of_papers += 1
+
+        exec_t = time.time() - start_time
+
+        print("--- in %s seconds ---\n" %exec_t)
+        total_time = total_time + exec_t
 
 
         """
@@ -297,10 +292,6 @@ for f in files:
     	f = open(summary_file, 'w')
     	f.write(citation_contexts_summary)
     	f.close()
-        t2 = datetime.now()
-
-
-
 
 if __name__ == "__main__":
 
@@ -326,7 +317,5 @@ if __name__ == "__main__":
     # STEP 5:
     # convert_to_RDF(f)
 
-    delta = t1 - t2
-    print str(number_of_papers) + "\n\n"
-    print delta.seconds/1E6
     print("%s Papers have been procced" %number_of_papers)
+    print "Total execution time: %s" %total_time
