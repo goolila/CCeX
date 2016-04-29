@@ -137,8 +137,9 @@ for f in files:
                         c.addprevious(exploded_cross_refs)
                         i += 1
                     c_parent.remove(c) # ERROR GENERATOR
-                # else:
-                #     print("# of refids is ne c_vals")
+                else:
+                    print("# of refids is ne c_vals")
+                    print "refid=[", c.attrib['refid'], "]"
 
         """
         STEP 2
@@ -226,7 +227,7 @@ for f in files:
                     c_ref_info_being_added['citation_context'] = citation_context
                     c_ref_info_being_added['DEBUG-blockContent'] = block_content
             c_ref_info.append(c_ref_info_being_added)
-            # print c_ref_info
+            print c_ref_info
 
         """
         STEP 5
@@ -286,7 +287,7 @@ for f in files:
         Summary
         """
         for c in c_ref_info:
-            citation_contexts_summary = c['positionNumber'] + "|" + c['positionNumberOfBibliographicReference'] + "|"
+            citation_contexts_summary = c['positionNumber'] + "|" + c['positionNumberOfBibliographicReference'] + "|" + c['sentence_id'] + "|" + c['citation_context'] + "|" + c['DEBUG-blockContent']
 
     	summary_file = os.path.join(output_dir, SUMMARY_FILENAME)
     	f = open(summary_file, 'w')
