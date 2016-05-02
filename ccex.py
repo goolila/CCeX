@@ -97,6 +97,7 @@ NMSPCS = {'xocs' : 'http://www.elsevier.com/xml/xocs/dtd',
     'xmlns:ce' : "http://www.elsevier.com/xml/common/dtd",
     'xmlns:cals' : "http://www.elsevier.com/xml/common/cals/dtd",
 }
+non_dec = re.compile(r'[^\d.]+')
 
 files = os.listdir(input_dir)
 total_time = 0
@@ -138,8 +139,33 @@ for f in files:
                         i += 1
                     c_parent.remove(c) # ERROR GENERATOR
                 else:
-                    print("# of refids is ne c_vals")
-                    print "refid=[", c.attrib['refid'], "]"
+                    new_c_vals = []
+                    for element in c_vals:
+                        if element.isdigit():
+                            new_c_vals.append(str(element))
+                        else:
+                            toexpand = non_dec.sub('f', element)
+                            toexpand = toexpand.split("f")
+                            try:
+                                for i in range(int(toexpand[0]), int(toexpand[1]) + 1, 1):
+                                    new_c_vals.append(str((i)))
+                            except ValueError:
+                                print "Problem!!"
+                    if (len(new_c_vals) == len(ref_ids)):
+                        i = 0
+                        for r in ref_ids:
+                            # print c_vals[i]
+                            CE = "http://www.elsevier.com/xml/common/dtd"
+                            NS_MAP = {'ce': CE}
+                            tag = et.QName(CE, 'cross-ref')
+                            exploded_cross_refs = et.Element(tag, refid=r, nsmap=NS_MAP)
+                            exploded_cross_refs.text = "[" + new_c_vals[i] + "]"
+                            # print exploded_cross_refs.tag
+                            c.addprevious(exploded_cross_refs)
+                            i += 1
+                        c_parent.remove(c)
+                    else:
+                        print "# refids NE new_c_vals.\n refids: %s \n c_vals: %s \n" %(ref_ids, new_c_vals)
 
         """
         STEP 2
@@ -227,7 +253,7 @@ for f in files:
                     c_ref_info_being_added['citation_context'] = citation_context
                     c_ref_info_being_added['DEBUG-blockContent'] = block_content
             c_ref_info.append(c_ref_info_being_added)
-            print c_ref_info
+            # print c_ref_info
 
         """
         STEP 5
@@ -287,7 +313,8 @@ for f in files:
         Summary
         """
         for c in c_ref_info:
-            citation_contexts_summary = c['positionNumber'] + "|" + c['positionNumberOfBibliographicReference'] + "|" + c['sentence_id'] + "|" + c['citation_context'] + "|" + c['DEBUG-blockContent']
+            citation_contexts_summary = c['positionNumber'] + "|" + c['positionNumberOfBibliographicReference']
+            # + "|" + c['sentence_id'] + "|" + c['citation_context'] + "|" + c['DEBUG-blockContent']
 
     	summary_file = os.path.join(output_dir, SUMMARY_FILENAME)
     	f = open(summary_file, 'w')
