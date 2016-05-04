@@ -201,22 +201,14 @@ for f in files:
         for c in cross_refs:
             c.set("positionNumber", str(current_cross_ref_pos))
             c_textual_marker = build_textual_marker(current_cross_ref_pos, c.attrib['positionNumberOfBibliographicReference'])
-
-            text_to_recognize_citation = et.Element("tmarker")
-            text_to_recognize_citation.text = c_textual_marker
-            c.append(text_to_recognize_citation)
+            c.text = c.text + c_textual_marker
 
             current_cross_ref_pos += 1
-        # output till here for first refid of first cross-refs pointing to bib24:
-        # <ce:cross-ref refid="bib24" positionNumberOfBibliographicReference="24" positionNumber="1">[24]<tmarker>[xxxcitxxx[['.1.']['.24.']]xxxcitxxx]</tmarker></ce:cross-ref>
-        # c.text( [24] ) can be removed.
 
         """
         STEP 4
         Extract citation contexts and build info array
         """
-
-
         xpath = "//ce:cross-ref[@positionNumberOfBibliographicReference]"
         cross_refs = tree.xpath(xpath, namespaces={'ce': 'http://www.elsevier.com/xml/common/dtd'})
         c_ref_info = []
@@ -248,7 +240,6 @@ for f in files:
                     ref_pointers = re.findall("\[_'.*?'_\]", citation_context)
                     first_ref_pointer = ref_pointers[0].strip("[]_'")
                     c_ref_info_being_added['sentence_id'] = "sentence-with-in-text-reference-pointer-"+first_ref_pointer[0].strip("[]_'")
-                    # citation_context = re.sub(marker_regexp, r'\g<1>', citation_context)
                     citation_context = re.sub(marker_regexp, "" , citation_context)
                     c_ref_info_being_added['citation_context'] = citation_context
                     c_ref_info_being_added['DEBUG-blockContent'] = block_content
@@ -303,6 +294,7 @@ for f in files:
         """
         Debug
         """
+        #TODO:: How to debug it?
 
         """
         In case we need to write the tree on a file
@@ -311,10 +303,10 @@ for f in files:
 
         """"
         Summary
+        TODO : add more information
         """
         for c in c_ref_info:
             citation_contexts_summary = c['positionNumber'] + "|" + c['positionNumberOfBibliographicReference']
-            # + "|" + c['sentence_id'] + "|" + c['citation_context'] + "|" + c['DEBUG-blockContent']
 
     	summary_file = os.path.join(output_dir, SUMMARY_FILENAME)
     	f = open(summary_file, 'w')
@@ -322,28 +314,11 @@ for f in files:
     	f.close()
 
 if __name__ == "__main__":
-
-
-    # STEP 0 : Open files, set directories
-    # Initialize counters
+    #TODO: Count papers with no cross refs
     papers_with_no_crossrefs = 0
-    # set and check input & output directories
 
-    # print ("Input: %s\t is OK\nOutput: %s\tis OK" %(input_dir, output_dir))
-
-    # functions to be added:
+    print ("Input: %s\t is OK\nOutput: %s\tis OK" %(input_dir, output_dir))
     check_permission(input_dir, output_dir)
-    # Open all files in a loop, then for each f in files:
-    # STEP 1:
-    # expand_cross_refs(f)
-    # STEP 2:
-    # count_bib_ref(f)
-    # STEP 3:
-    # identify_intext_pointers(f)
-    # STEP 4:
-    # extract_citation_contexts(f)
-    # STEP 5:
-    # convert_to_RDF(f)
 
     print("%s Papers have been procced" %number_of_papers)
     print "Total execution time: %s" %total_time
