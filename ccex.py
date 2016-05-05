@@ -118,6 +118,18 @@ def remove_preserve_tail(element):
             parent.text = (parent.text or '') + element.tail
         parent.remove(element)
 
+counter_remove_preserve = 0
+remove_counter = 0
+def remove_cross_refs(element, element_parent):
+    global counter_remove_preserve
+    global remove_counter
+    remove_counter += 1
+    try:
+        et.strip_elements(element_parent, cross_refs_tag_name, with_tail=False)
+    except TypeError:
+        counter_remove_preserve += 1
+        remove_preserve_tail(element)
+
 for f in files:
     # f = 1-s2.0-S157082680400006X-full.xml
     start_time = time.time()
@@ -148,10 +160,11 @@ for f in files:
                     i = 0
                     for r in ref_ids:
                         exploded_cross_refs = et.Element(cross_ref_tag_name, refid=r, nsmap=NS_MAP)
+                        exploded_cross_refs.set("connected", str(i))
                         exploded_cross_refs.text = "[" + c_vals[i] + "]"
                         c.addprevious(exploded_cross_refs)
                         i += 1
-                    remove_preserve_tail(c)
+                        remove_cross_refs(c, c_parent)
                 else:
                     new_c_vals = []
                     for element in c_vals:
@@ -169,10 +182,11 @@ for f in files:
                         i = 0
                         for r in ref_ids:
                             exploded_cross_refs = et.Element(cross_ref_tag_name, refid=r, nsmap=NS_MAP)
+                            exploded_cross_refs.set("connected", str(i))
                             exploded_cross_refs.text = "[" + new_c_vals[i] + "]"
                             c.addprevious(exploded_cross_refs)
                             i += 1
-                        remove_preserve_tail(c)
+                            remove_cross_refs(c, c_parent)
                     else:
                         print "# refids NE new_c_vals.\n refids: %s \n c_vals: %s \n" %(ref_ids, new_c_vals)
 
@@ -229,10 +243,24 @@ for f in files:
             c_ref_info_being_added['positionNumberOfBibliographicReference'] = current_ref_id
             c_textual_marker_current = build_textual_marker(c_ref_info_being_added['positionNumber'], current_ref_id)
 
+            # xpath_block = "//*[self::ce:para or self::ce:note-para or self::ce:simple-para or self::ce:textref or self::xocs:item-toc-section-title or self::entry or self::ce:source or self::ce:section-title][descendant::ce:cross-ref[@positionNumberOfBibliographicReference and @positionNumber='{0}']]".format(c_ref_info_being_added['positionNumber'])
+            # block_containing_cross_ref = tree.xpath(xpath_block, namespaces=NMSPCS)
+            # block_content = et.tostring(block_containing_cross_ref[0], method="text", encoding="unicode")  # or et.tostring(block_containing_cross_ref[0], method="text")
+            # sent_detector = nltk.data.load('tokenizers/punkt/english.pickle')
+            # candidate_sentences = sent_detector.tokenize(block_content.strip())
+            con = c.get("connected")
             xpath_block = "//*[self::ce:para or self::ce:note-para or self::ce:simple-para or self::ce:textref or self::xocs:item-toc-section-title or self::entry or self::ce:source or self::ce:section-title][descendant::ce:cross-ref[@positionNumberOfBibliographicReference and @positionNumber='{0}']]".format(c_ref_info_being_added['positionNumber'])
-            block_containing_cross_ref = tree.xpath(xpath_block, namespaces=NMSPCS)
-            block_content = et.tostring(block_containing_cross_ref[0], method="text", encoding="unicode")  # or et.tostring(block_containing_cross_ref[0], method="text")
-            sent_detector = nltk.data.load('tokenizers/punkt/english.pickle')
+
+            if not con:
+                block_containing_cross_ref = tree.xpath(xpath_block, namespaces=NMSPCS)
+                block_content = et.tostring(block_containing_cross_ref[0], method="text", encoding="unicode")
+            elif con:
+                if con == "0":
+                    block_containing_cross_ref = tree.xpath(xpath_block, namespaces=NMSPCS)
+                    block_content = et.tostring(block_containing_cross_ref[0], method="text",encoding="unicode")
+                else:
+                    pass
+
             candidate_sentences = sent_detector.tokenize(block_content.strip())
 
             marker_regexp = "\[xxxcitxxx\[\[_'(?P<pos>.*?)'_\]\[_'.*?'_\]\]xxxcitxxx\]"
@@ -288,10 +316,8 @@ for f in files:
         number_of_papers += 1
 
         exec_t = time.time() - start_time
-
         print("--- in %s seconds ---\n" %exec_t)
         total_time = total_time + exec_t
-
 
         """
         Debug
@@ -324,6 +350,6 @@ if __name__ == "__main__":
     papers_with_no_crossrefs = 0
 
 
-
     print("%s Papers have been procced" %number_of_papers)
     print "Total execution time: %s" %total_time
+    print "counter_remove_preserve = %d \nremove_counter=%d" %(counter_remove_preserve, remove_counter)
