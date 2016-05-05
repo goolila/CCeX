@@ -78,7 +78,7 @@ def check_permission(input_dir, output_dir):
         os.chmod(input_dir, int(0744))
 
 def build_textual_marker(p_number, ref_id):
-    # output : [xxxcitxxx[['.1.'] ['.24.']]xxxcitxxx]
+    # output : [xxxcitxxx[[_'6'_][_'1'_]]xxxcitxxx]
     return "[xxxcitxxx[[_'" + str(p_number) + "'_][_'" + ref_id + "'_]]xxxcitxxx]"
 
 NMSPCS = {'xocs' : 'http://www.elsevier.com/xml/xocs/dtd',
@@ -99,8 +99,24 @@ NMSPCS = {'xocs' : 'http://www.elsevier.com/xml/xocs/dtd',
 }
 non_dec = re.compile(r'[^\d.]+')
 
+CE = "http://www.elsevier.com/xml/common/dtd"
+NS_MAP = {'ce': CE}
+
+cross_ref_tag_name = et.QName(CE, 'cross-ref')
+cross_refs_tag_name = '{http://www.elsevier.com/xml/common/dtd}cross-refs'
+
 files = os.listdir(input_dir)
 total_time = 0
+
+def remove_preserve_tail(element):
+    if element.tail:
+        prev = element.getprevious()
+        parent = element.getparent()
+        if prev is not None:
+            prev.tail = (prev.tail or '') + element.tail
+        else:
+            parent.text = (parent.text or '') + element.tail
+        parent.remove(element)
 
 for f in files:
     # f = 1-s2.0-S157082680400006X-full.xml
@@ -120,7 +136,8 @@ for f in files:
             finds all ce:cross-ref with refid = 'bib1' , set its positionNumberofBiblioref same as positionnumber'1'
         """
         xpath = "//ce:cross-refs"
-        cross_refs = tree.xpath(xpath, namespaces={'ce': 'http://www.elsevier.com/xml/common/dtd'})
+        cross_refs = tree.xpath(xpath, namespaces=NS_MAP )
+
         for c in cross_refs:
             c_parent = c.getparent()
             c_val = c.text.strip("[]")
@@ -130,14 +147,11 @@ for f in files:
                 if (len(c_vals) == len(ref_ids)):
                     i = 0
                     for r in ref_ids:
-                        CE = "http://www.elsevier.com/xml/common/dtd"
-                        NS_MAP = {'ce': CE}
-                        tag = et.QName(CE, 'cross-ref')
-                        exploded_cross_refs = et.Element(tag, refid=r, nsmap=NS_MAP)
-                        exploded_cross_refs.text = "[" + c_vals[i] + "]" # ERRO GENERATOR
+                        exploded_cross_refs = et.Element(cross_ref_tag_name, refid=r, nsmap=NS_MAP)
+                        exploded_cross_refs.text = "[" + c_vals[i] + "]"
                         c.addprevious(exploded_cross_refs)
                         i += 1
-                    c_parent.remove(c) # ERROR GENERATOR
+                    remove_preserve_tail(c)
                 else:
                     new_c_vals = []
                     for element in c_vals:
@@ -154,16 +168,11 @@ for f in files:
                     if (len(new_c_vals) == len(ref_ids)):
                         i = 0
                         for r in ref_ids:
-                            # print c_vals[i]
-                            CE = "http://www.elsevier.com/xml/common/dtd"
-                            NS_MAP = {'ce': CE}
-                            tag = et.QName(CE, 'cross-ref')
-                            exploded_cross_refs = et.Element(tag, refid=r, nsmap=NS_MAP)
+                            exploded_cross_refs = et.Element(cross_ref_tag_name, refid=r, nsmap=NS_MAP)
                             exploded_cross_refs.text = "[" + new_c_vals[i] + "]"
-                            # print exploded_cross_refs.tag
                             c.addprevious(exploded_cross_refs)
                             i += 1
-                        c_parent.remove(c)
+                        remove_preserve_tail(c)
                     else:
                         print "# refids NE new_c_vals.\n refids: %s \n c_vals: %s \n" %(ref_ids, new_c_vals)
 
@@ -174,17 +183,16 @@ for f in files:
         """
         xpath_bib_references ="//ce:bib-reference"
         bib_refrences = tree.xpath(xpath_bib_references, namespaces={'ce' : 'http://www.elsevier.com/xml/common/dtd'})
-
         bib_ref_pos = 1
         for b in bib_refrences:
             b.set("positionNumber", str(bib_ref_pos))
             b_ref_id = b.attrib['id'].split()[0]
             xpath_cross_ref_bib_pointers = "//ce:cross-ref[@refid='{0}']".format(b_ref_id)
-            cross_ref_bib_pointers = tree.xpath(xpath_cross_ref_bib_pointers, namespaces=NMSPCS)
+
+            cross_ref_bib_pointers = tree.xpath(xpath_cross_ref_bib_pointers, namespaces={'ce': 'http://www.elsevier.com/xml/common/dtd'})
 
             for c in cross_ref_bib_pointers:
                 c.set("positionNumberOfBibliographicReference", str(bib_ref_pos))
-
             bib_ref_pos += 1
 
         """
@@ -201,6 +209,7 @@ for f in files:
         for c in cross_refs:
             c.set("positionNumber", str(current_cross_ref_pos))
             c_textual_marker = build_textual_marker(current_cross_ref_pos, c.attrib['positionNumberOfBibliographicReference'])
+
             c.text = c.text + c_textual_marker
 
             current_cross_ref_pos += 1
@@ -209,10 +218,10 @@ for f in files:
         STEP 4
         Extract citation contexts and build info array
         """
+        c_ref_info = []
         xpath = "//ce:cross-ref[@positionNumberOfBibliographicReference]"
         cross_refs = tree.xpath(xpath, namespaces={'ce': 'http://www.elsevier.com/xml/common/dtd'})
-        c_ref_info = []
-
+        count = 0
         for c in cross_refs:
             current_ref_id = c.attrib['positionNumberOfBibliographicReference']
             c_ref_info_being_added = {}
@@ -222,24 +231,17 @@ for f in files:
 
             xpath_block = "//*[self::ce:para or self::ce:note-para or self::ce:simple-para or self::ce:textref or self::xocs:item-toc-section-title or self::entry or self::ce:source or self::ce:section-title][descendant::ce:cross-ref[@positionNumberOfBibliographicReference and @positionNumber='{0}']]".format(c_ref_info_being_added['positionNumber'])
             block_containing_cross_ref = tree.xpath(xpath_block, namespaces=NMSPCS)
-
-            block_content = et.tostring(block_containing_cross_ref[0], method="text", encoding="unicode") # caused error on S1570826807000133, S1570826808000218
-
-            """
-            Tokenize sentences
-            """
+            block_content = et.tostring(block_containing_cross_ref[0], method="text", encoding="unicode")  # or et.tostring(block_containing_cross_ref[0], method="text")
+            sent_detector = nltk.data.load('tokenizers/punkt/english.pickle')
             candidate_sentences = sent_detector.tokenize(block_content.strip())
-            # lazy * , output =  [xxxcitxxx[[_'2'_] [_'2'_]]xxxcitxxx] and (2) dynamic linking between pages based on the semantic relations in the underlying knowledge base [6][xxxcitxxx[[_'3'_] [_'6'_]]xxxcitxxx]
-            # non lazy *? , output = only the first occurrance : [xxxcitxxx[[_'2'_] [_'2'_]]xxxcitxxx]
+
             marker_regexp = "\[xxxcitxxx\[\[_'(?P<pos>.*?)'_\]\[_'.*?'_\]\]xxxcitxxx\]"
-
-
             for i in range(len(candidate_sentences)):
-                if c_textual_marker_current in candidate_sentences[i]:
+                if c_textual_marker_current in candidate_sentences[i]: # or candidate_sentences[i].find(c_textual_marker_current) if we need pos
                     citation_context = candidate_sentences[i]
                     ref_pointers = re.findall("\[_'.*?'_\]", citation_context)
                     first_ref_pointer = ref_pointers[0].strip("[]_'")
-                    c_ref_info_being_added['sentence_id'] = "sentence-with-in-text-reference-pointer-"+first_ref_pointer[0].strip("[]_'")
+                    c_ref_info_being_added['sentenceid'] = "sentence-with-in-text-reference-pointer-"+first_ref_pointer
                     citation_context = re.sub(marker_regexp, "" , citation_context)
                     c_ref_info_being_added['citation_context'] = citation_context
                     c_ref_info_being_added['DEBUG-blockContent'] = block_content
@@ -262,7 +264,7 @@ for f in files:
             # http://www.semanticlancet.eu/resource/1-s2.0-S157082680300009X/version-of-record/in-text-reference-pointer/positionNumber
             in_text_pointer_uri = URIRef(exp_uri + "/in-text-reference-pointer-" + c['positionNumber'])
             # http://www.semanticlancet.eu/resource/1-s2.0-S157082680300009X/version-of-record/sentenceid
-            citation_sentence_uri = URIRef(exp_uri + "/" + c['sentence_id'])
+            citation_sentence_uri = URIRef(exp_uri + "/" + c['sentenceid'])
 
             graph_of_citation_contexts.add( (in_text_pointer_uri, RDF.type, c4o.InTextReferencePointer) )
             graph_of_citation_contexts.add( (in_text_pointer_uri, c4o.hasContent, Literal("[" + c['positionNumberOfBibliographicReference'] + "]") ) )
@@ -306,19 +308,22 @@ for f in files:
         TODO : add more information
         """
         for c in c_ref_info:
-            citation_contexts_summary = c['positionNumber'] + "|" + c['positionNumberOfBibliographicReference']
-
-    	summary_file = os.path.join(output_dir, SUMMARY_FILENAME)
-    	f = open(summary_file, 'w')
-    	f.write(citation_contexts_summary)
-    	f.close()
+            citation_contexts_summary = c['positionNumber'] + " | " + c['positionNumberOfBibliographicReference'] + " | " + c['sentenceid'] + " | " + c["citation_context"] + " | " + c['DEBUG-blockContent'] + "\n"
+            citation_contexts_summary = citation_contexts_summary.encode('ascii', 'ignore')
+            # print citation_contexts_summary
+            summary_file = os.path.join("/Users/sheshkovsky/dev/env/ccex/output", SUMMARY_FILENAME)
+            f = open(summary_file, 'w')
+            f.write(citation_contexts_summary)
+            f.close()
 
 if __name__ == "__main__":
+    check_permission(input_dir, output_dir)
+    print ("Input: %s\t is OK\nOutput: %s\tis OK" %(input_dir, output_dir))
+
     #TODO: Count papers with no cross refs
     papers_with_no_crossrefs = 0
 
-    print ("Input: %s\t is OK\nOutput: %s\tis OK" %(input_dir, output_dir))
-    check_permission(input_dir, output_dir)
+
 
     print("%s Papers have been procced" %number_of_papers)
     print "Total execution time: %s" %total_time
