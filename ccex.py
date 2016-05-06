@@ -224,7 +224,11 @@ for f in files:
             c.set("positionNumber", str(current_cross_ref_pos))
             c_textual_marker = build_textual_marker(current_cross_ref_pos, c.attrib['positionNumberOfBibliographicReference'])
 
-            c.text = c.text + c_textual_marker
+            try:
+                c.text = c.text + c_textual_marker
+            except TypeError:
+                c.text = "" + c_textual_marker
+                print "Rare typeError Happened", c.get('refid'), c_textual_marker_current
 
             current_cross_ref_pos += 1
 
@@ -249,15 +253,22 @@ for f in files:
             # sent_detector = nltk.data.load('tokenizers/punkt/english.pickle')
             # candidate_sentences = sent_detector.tokenize(block_content.strip())
             con = c.get("connected")
-            xpath_block = "//*[self::ce:para or self::ce:note-para or self::ce:simple-para or self::ce:textref or self::xocs:item-toc-section-title or self::entry or self::ce:source or self::ce:section-title][descendant::ce:cross-ref[@positionNumberOfBibliographicReference and @positionNumber='{0}']]".format(c_ref_info_being_added['positionNumber'])
+            xpath_block = "//*[self::ce:para or self::ce:entry or self::ce:note-para or self::ce:simple-para or self::ce:textref or self::xocs:item-toc-section-title or self::entry or self::ce:source or self::ce:section-title][descendant::ce:cross-ref[@positionNumberOfBibliographicReference and @positionNumber='{0}']]".format(c_ref_info_being_added['positionNumber'])
 
             if not con:
                 block_containing_cross_ref = tree.xpath(xpath_block, namespaces=NMSPCS)
-                block_content = et.tostring(block_containing_cross_ref[0], method="text", encoding="unicode")
+                try:
+                    block_content = et.tostring(block_containing_cross_ref[0], method="text", encoding="unicode")
+                except IndexError:
+                    block_content = ""
             elif con:
                 if con == "0":
                     block_containing_cross_ref = tree.xpath(xpath_block, namespaces=NMSPCS)
-                    block_content = et.tostring(block_containing_cross_ref[0], method="text",encoding="unicode")
+                    try:
+                        block_content = et.tostring(block_containing_cross_ref[0], method="text", encoding="unicode")
+                    except IndexError:
+                        print "check here!!!"
+                        block_content = ""
                 else:
                     pass
 
@@ -336,7 +347,7 @@ for f in files:
         for c in c_ref_info:
             citation_contexts_summary = c['positionNumber'] + " | " + c['positionNumberOfBibliographicReference'] + " | " + c['sentenceid'] + " | " + c["citation_context"] + " | " + c['DEBUG-blockContent'] + "\n"
             citation_contexts_summary = citation_contexts_summary.encode('ascii', 'ignore')
-            # print citation_contexts_summary
+            #print citation_contexts_summary
             summary_file = os.path.join("/Users/sheshkovsky/dev/env/ccex/output", SUMMARY_FILENAME)
             f = open(summary_file, 'w')
             f.write(citation_contexts_summary)
