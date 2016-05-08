@@ -1,6 +1,6 @@
+*.pyc
 *.xml
 *.ttl
 *.DS_Store
 *.csv
-*.pyc
 tests/

@@ -142,7 +142,7 @@ for f in files:
     start_time = time.time()
     f_name, f_extension = os.path.splitext(f)
     if (f_extension == ".xml" and f_name[-5:] == "-full"):
-        eid = f_name[0:-5] #1-s2.0-S157082680300009X
+        eid = f_name[0:-5]
         f_path = input_dir + f
         print("Processing %s" %f)
 
