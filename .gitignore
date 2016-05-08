@@ -2,4 +2,5 @@
 *.ttl
 *.DS_Store
 *.csv
+*.pyc
 tests/
