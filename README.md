@@ -12,4 +12,8 @@ Put all XML files in input_dir_name and keep ccex.py in the same directory with 
 ```
 python ccex.py input_dir_name output_dir_name
 ```
+You can run also ```ccex_mp.py``` in both single & multi processing modes, using ```-mp``` option following by an integer. It will be bounded any way by your CPU capacity:
+```
+python ccex_mp.py input_dir_name output_dir_name -mp <processes_number>
+```
 
