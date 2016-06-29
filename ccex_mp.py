@@ -1,78 +1,10 @@
 import os
-import re
 import sys
 import time
-import logging
 import multiprocessing
-import nltk.data
-from lxml import etree as et
-from rdflib import Graph, URIRef, Literal
-from rdflib.namespace import Namespace, NamespaceManager, RDF
-
-# language to be used by nlptk
-sent_detector = nltk.data.load('tokenizers/punkt/english.pickle')
-
-# available logging for RDF
-logging.basicConfig(level=logging.INFO)
-
-# Global variables
-SEMLANCET_NS = "http://www.semanticlancet.eu/resource/"
-SEMLANCET_URI_PRO_ROLE_AUTHOR = "http://purl.org/spar/pro/author"
-SUMMARY_FILENAME = "CITATION_CONTEXTS_SUMMARY.csv"
-RDF_EXTENSION = "ttl"
-RDF_SERIALIZATION_FORMAT = "turtle"
-NON_DECIMAL = re.compile(r'[^\d.]+')
-
-# Counters
-number_of_papers = 0
-count_remove_preserve = 0
-count_remove_all = 0
-papers_with_block_detect_error = []
-papers_with_no_crossrefs = []
-
-# namespaces
-CE = "http://www.elsevier.com/xml/common/dtd"
-NS_MAP = {'ce': CE}
-cross_ref_tag_name = et.QName(CE, 'cross-ref')
-cross_refs_tag_name = '{http://www.elsevier.com/xml/common/dtd}cross-refs'
-
-# rdf namspaces
-frbrNS = Namespace('http://purl.org/vocab/frbr/core#')
-coNS = Namespace('http://purl.org/co/')
-foafNS = Namespace('http://xmlns.com/foaf/0.1/')
-c4oNS = Namespace('http://purl.org/spar/c4o/')
-proNS = Namespace('http://purl.org/spar/pro/')
-docoNS = Namespace('http://purl.org/spar/doco/')
-
-ns_mgr = NamespaceManager(Graph())
-ns_mgr.bind('frbr', frbrNS, override=False)
-ns_mgr.bind('co', coNS, override=False)
-ns_mgr.bind('foaf', foafNS, override=False)
-ns_mgr.bind('c4o', c4oNS, override=False)
-ns_mgr.bind('pro', proNS, override=False)
-ns_mgr.bind('doco', docoNS, override=False)
-
-# simple namespace def
-c4o = Namespace('http://purl.org/spar/c4o/')
-frbr = Namespace('http://purl.org/vocab/frbr/core#')
-doco = Namespace('http://purl.org/spar/doco/')
-
-NMSPCS = {'xocs' : 'http://www.elsevier.com/xml/xocs/dtd',
-    'ce' : 'http://www.elsevier.com/xml/common/dtd',
-    'xmlns' : "http://www.elsevier.com/xml/svapi/article/dtd",
-    'xmlns:xsi' : "http://www.w3.org/2001/XMLSchema-instance",
-    'xmlns:prism' : "http://prismstandard.org/namespaces/basic/2.0/",
-    'xmlns:dc' : "http://purl.org/dc/elements/1.1/",
-    'xmlns:xocs' : "http://www.elsevier.com/xml/xocs/dtd",
-    'xmlns:xlink' : "http://www.w3.org/1999/xlink",
-    'xmlns:tb' : "http://www.elsevier.com/xml/common/table/dtd",
-    'xmlns:sb' : "http://www.elsevier.com/xml/common/struct-bib/dtd",
-    'xmlns:sa' : "http://www.elsevier.com/xml/common/struct-aff/dtd",
-    'xmlns:mml' : "http://www.w3.org/1998/Math/MathML",
-    'xmlns:ja' : "http://www.elsevier.com/xml/ja/dtd",
-    'xmlns:ce' : "http://www.elsevier.com/xml/common/dtd",
-    'xmlns:cals' : "http://www.elsevier.com/xml/common/cals/dtd",
-}
+from rdflib import URIRef, Literal
+from rdflib.namespace import RDF
+from settings import *
 
 # functions
 def check_permission(input_dir, output_dir):
@@ -83,7 +15,7 @@ def check_permission(input_dir, output_dir):
         os.chmod(output_dir, int(0777))
     if not(os.access(input_dir, os.R_OK)):
         os.chmod(input_dir, int(0744))
-    print ("Input directory is OK: %s\nOutput Directory is OK: %s\n" %(input_dir, output_dir))
+    print ("Input: %s\t is OK\nOutput: %s\tis OK" %(input_dir, output_dir))
 
 def explode(c_vals, ref_ids, c, c_parent):
     i = 0
@@ -119,15 +51,18 @@ def build_textual_marker(p_number, ref_id):
     return "[xxxcitxxx[[_'" + str(p_number) + "'_][_'" + ref_id + "'_]]xxxcitxxx]"
 
 def xml_to_rdf(file):
-    global number_of_papers
+    global total_time, number_of_papers, count_remove_preserve, \
+        count_remove_all, papers_with_block_detect_error, papers_with_no_crossrefs
 
-    file_path = os.path.join(input_dir ,file)
     f_name, f_extension = os.path.splitext(file)
-    eid = f_name[0:-5]
+    if (f_name[-5:] == "-full"):
+        eid = f_name[0:-5]
+    else:
+        eid = f_name
+    file_path = os.path.join(input_dir, file)
     print("Processing of %s started\n" % eid)
 
-    start_time = time.time()
-
+    start_time_ind = time.time()
     tree = et.parse(file_path)
 
     """
@@ -199,7 +134,10 @@ def xml_to_rdf(file):
     cross_refs = tree.xpath(xpath, namespaces={'ce': 'http://www.elsevier.com/xml/common/dtd'})
 
     if len(cross_refs) == 0:
-        papers_with_no_crossrefs.append(f)
+        no_cross_refs = os.path.join(output_dir, NO_CROSS_REFS_LIST)
+        with open(no_cross_refs, 'a') as ncf:
+            ncf.write(f+'\n')
+        ncf.close()
 
     current_cross_ref_pos = 1
     for c in cross_refs:
@@ -212,8 +150,7 @@ def xml_to_rdf(file):
         except TypeError:
             c.text = "" + c_textual_marker
             papers_with_block_detect_error.append(f)
-            print "Rare typeError Happened", c.get('refid'), c_textual_marker_current
-
+            tree.write("/Users/sheshkovsky/dev/env/ccex/erroro/OUTPUT_FILE.XML", pretty_print=True)
         current_cross_ref_pos += 1
 
     """
@@ -262,6 +199,7 @@ def xml_to_rdf(file):
                 c_ref_info_being_added['DEBUG-blockContent'] = block_content
         c_ref_info.append(c_ref_info_being_added)
         # print c_ref_info
+    # tree.write("/Users/sheshkovsky/dev/env/ccex/errori/1-s2.0-S1570826811000473-full_tree_ccxx.XML", pretty_print=True)
 
     """
     STEP 5
@@ -303,7 +241,7 @@ def xml_to_rdf(file):
     graph_of_citation_contexts.serialize(destination=g_citation_filename, format='turtle')
     number_of_papers += 1
 
-    exec_t = time.time() - start_time
+    exec_t = time.time() - start_time_ind
     print("--- %s processed in %s seconds ---\n" %(eid, exec_t))
 
     """"
@@ -327,9 +265,8 @@ def xml_to_rdf(file):
     """
     # tree.write("OUTPUT_FILE.XML", pretty_print=True)
 
-
-
 if __name__ == "__main__":
+    # set/check input & output directories
     try:
         arg1 = sys.argv[1]
         arg2 = sys.argv[2]
@@ -340,57 +277,67 @@ if __name__ == "__main__":
     input_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), arg1)
     output_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), arg2)
 
-    for d in [input_dir, output_dir]:
-        if not os.path.isdir(d):
-            print(
-            "Invalid directory:\n'%s' is not a valid direcotry, please insert a valid directory name in current path." % d)
-            sys.exit(1)
+    if not os.path.isdir(input_dir):
+        print(
+        "Invalid input directory: '%s' is not a valid direcotry, please insert a valid directory name" % input_dir)
+        sys.exit(1)
+
+    if not os.path.exists(output_dir):
+        print "Making directory %s as output" % output_dir
+        os.makedirs(output_dir)
+
     check_permission(input_dir, output_dir)
 
+    all_files = os.listdir(input_dir)
+    files = []
+
+    # keep only XML files
+    for f in all_files:
+        f_name, f_extension = os.path.splitext(f)
+        if f_extension == '.xml':
+            files.append(f)
+
+    # counters
+    total_time = 0
+    number_of_papers = 0
+    count_remove_preserve = 0
+    count_remove_all = 0
+    papers_with_block_detect_error = []
+    papers_with_no_crossrefs = []
 
     try:
         if sys.argv[3] == '-mp':
             multiprocess = True
+            try:
+                mp = int(sys.argv[4])
+            except:
+                mp = 2
     except:
         multiprocess = False
 
-    total_time = 0
-    files = os.listdir(input_dir)
+    start_time = time.time()
 
     if not multiprocess:
         print "PROCESS STARTED IN ~~~SINGLE PROCESS~~~ MODE\n\n"
-        start_time = time.time()
         for f in files:
-            f_name, f_extension = os.path.splitext(f)
-            if (f_extension == ".xml" and f_name[-5:] == "-full"):
-                xml_to_rdf(f)
+            xml_to_rdf(f)
         total_time = time.time() - start_time
     else:
-        try:
-            mp = int(sys.argv[4])
-        except:
-            mp = 2
         print "PROCESS STARTED IN ~~~MULTIPROCESSING :mp = %d~~~ MODE\n\n" %mp
-        queue = []
-        for f in files:
-            f_name, f_extension = os.path.splitext(f)
-            if (f_extension == ".xml" and f_name[-5:] == "-full"):
-                queue.append(f)
-
-        start_time = time.time()
-
         pool = multiprocessing.Pool(mp)
-        pool.map(xml_to_rdf, queue)
+        pool.map(xml_to_rdf, files)
+        pool.close()
 
-        total_time = time.time() - start_time
+    total_time = time.time() - start_time
 
     print "Total execution time: %s seconds" %total_time
     print "# Papers have been processed: %d" %number_of_papers
-    print "# Papers with no cross-ref : %d\n" %len(papers_with_no_crossrefs)
+    print "# Papers with no cross-ref: %d\n" %len(papers_with_no_crossrefs)
     for p in papers_with_no_crossrefs:
         print "\t", p
     if papers_with_block_detect_error:
-        print "\nBlock detection erros happened %d times" %len(papers_with_block_detect_error)
+        print "Block detection erros happened %d times" %len(papers_with_block_detect_error)
         for p in papers_with_block_detect_error:
             print "\t", p
     print "# Cross-refs Rremoved: %d \n# Preserve function used: %d times" %(count_remove_all, count_remove_preserve)
+

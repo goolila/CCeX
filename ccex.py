@@ -1,78 +1,9 @@
 import os
-import re
 import sys
 import time
-import logging
-import nltk.data
-from lxml import etree as et
-from rdflib import Graph, URIRef, Literal
-from rdflib.namespace import Namespace, NamespaceManager, RDF
-
-# language to be used by nlptk
-sent_detector = nltk.data.load('tokenizers/punkt/english.pickle')
-
-# available logging for RDF
-logging.basicConfig(level=logging.INFO)
-
-# Global variables
-SEMLANCET_NS = "http://www.semanticlancet.eu/resource/"
-SEMLANCET_URI_PRO_ROLE_AUTHOR = "http://purl.org/spar/pro/author"
-SUMMARY_FILENAME = "CITATION_CONTEXTS_SUMMARY.csv"
-RDF_EXTENSION = "ttl"
-RDF_SERIALIZATION_FORMAT = "turtle"
-NON_DECIMAL = re.compile(r'[^\d.]+')
-
-# Counters
-number_of_papers = 0
-total_time = 0
-count_remove_preserve = 0
-count_remove_all = 0
-papers_with_block_detect_error = []
-papers_with_no_crossrefs = []
-
-# namespaces
-CE = "http://www.elsevier.com/xml/common/dtd"
-NS_MAP = {'ce': CE}
-cross_ref_tag_name = et.QName(CE, 'cross-ref')
-cross_refs_tag_name = '{http://www.elsevier.com/xml/common/dtd}cross-refs'
-
-# rdf namspaces
-frbrNS = Namespace('http://purl.org/vocab/frbr/core#')
-coNS = Namespace('http://purl.org/co/')
-foafNS = Namespace('http://xmlns.com/foaf/0.1/')
-c4oNS = Namespace('http://purl.org/spar/c4o/')
-proNS = Namespace('http://purl.org/spar/pro/')
-docoNS = Namespace('http://purl.org/spar/doco/')
-
-ns_mgr = NamespaceManager(Graph())
-ns_mgr.bind('frbr', frbrNS, override=False)
-ns_mgr.bind('co', coNS, override=False)
-ns_mgr.bind('foaf', foafNS, override=False)
-ns_mgr.bind('c4o', c4oNS, override=False)
-ns_mgr.bind('pro', proNS, override=False)
-ns_mgr.bind('doco', docoNS, override=False)
-
-# simple namespace def
-c4o = Namespace('http://purl.org/spar/c4o/')
-frbr = Namespace('http://purl.org/vocab/frbr/core#')
-doco = Namespace('http://purl.org/spar/doco/')
-
-NMSPCS = {'xocs' : 'http://www.elsevier.com/xml/xocs/dtd',
-    'ce' : 'http://www.elsevier.com/xml/common/dtd',
-    'xmlns' : "http://www.elsevier.com/xml/svapi/article/dtd",
-    'xmlns:xsi' : "http://www.w3.org/2001/XMLSchema-instance",
-    'xmlns:prism' : "http://prismstandard.org/namespaces/basic/2.0/",
-    'xmlns:dc' : "http://purl.org/dc/elements/1.1/",
-    'xmlns:xocs' : "http://www.elsevier.com/xml/xocs/dtd",
-    'xmlns:xlink' : "http://www.w3.org/1999/xlink",
-    'xmlns:tb' : "http://www.elsevier.com/xml/common/table/dtd",
-    'xmlns:sb' : "http://www.elsevier.com/xml/common/struct-bib/dtd",
-    'xmlns:sa' : "http://www.elsevier.com/xml/common/struct-aff/dtd",
-    'xmlns:mml' : "http://www.w3.org/1998/Math/MathML",
-    'xmlns:ja' : "http://www.elsevier.com/xml/ja/dtd",
-    'xmlns:ce' : "http://www.elsevier.com/xml/common/dtd",
-    'xmlns:cals' : "http://www.elsevier.com/xml/common/cals/dtd",
-}
+from rdflib import URIRef, Literal
+from rdflib.namespace import RDF
+from settings import *
 
 # functions
 def check_permission(input_dir, output_dir):
@@ -118,35 +49,23 @@ def build_textual_marker(p_number, ref_id):
     # output : [xxxcitxxx[[_'6'_][_'1'_]]xxxcitxxx]
     return "[xxxcitxxx[[_'" + str(p_number) + "'_][_'" + ref_id + "'_]]xxxcitxxx]"
 
-# set/check input & output directories
-try:
-    arg1 = sys.argv[1]
-    arg2 = sys.argv[2]
-except IndexError:
-    print "Usage: \tpython ccex.py <input_directory_name> <output_directory_name>"
-    sys.exit(1)
 
-input_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), arg1)
-output_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), arg2)
+def xml_to_rdf(files):
+    global total_time, number_of_papers, count_remove_preserve, \
+        count_remove_all, papers_with_block_detect_error, papers_with_no_crossrefs
 
-for d in [input_dir, output_dir]:
-    if not os.path.isdir(d):
-        print("Invalid directory:\n'%s' is not a valid direcotry, please insert a valid directory name in current path." %d)
-        sys.exit(1)
-check_permission(input_dir, output_dir)
+    for f in files:
+        f_name, f_extension = os.path.splitext(f)
 
-files = os.listdir(input_dir)
-
-for f in files:
-    # f = 1-s2.0-S157082680400006X-full.xml
-    start_time = time.time()
-    f_name, f_extension = os.path.splitext(f)
-    if (f_extension == ".xml" and f_name[-5:] == "-full"):
-        eid = f_name[0:-5]
-        f_path = input_dir + f
+        if(f_name[-5:] == "-full"):
+            eid = f_name[0:-5]
+        else:
+            eid = f_name
+        file_path = os.path.join(input_dir, f)
+        start_time = time.time()
         print("Processing %s" %f)
 
-        tree = et.parse(f_path)
+        tree = et.parse(file_path)
 
         """
         STEP 1
@@ -210,13 +129,17 @@ for f in files:
         Identify InTextPointer (by checking @positionNumberOfBibliographicReference attribute)
         - Add position attribute
         - Normalize cross-ref content, by substituting content with a marker
-            - invokes buildTextualMarker()
+        - invokes buildTextualMarker()
         """
         xpath = "//ce:cross-ref[@positionNumberOfBibliographicReference]"
         cross_refs = tree.xpath(xpath, namespaces={'ce': 'http://www.elsevier.com/xml/common/dtd'})
 
         if len(cross_refs) == 0 :
-                papers_with_no_crossrefs.append(f)
+            no_cross_refs = os.path.join(output_dir, NO_CROSS_REFS_LIST)
+            with open(no_cross_refs, 'a') as ncf:
+                ncf.write(f + '\n')
+            ncf.close()
+                # papers_with_no_crossrefs.append(f)
 
         current_cross_ref_pos = 1
         for c in cross_refs:
@@ -228,7 +151,7 @@ for f in files:
             except TypeError:
                 c.text = "" + c_textual_marker
                 papers_with_block_detect_error.append(f)
-                print "Rare typeError Happened", c.get('refid'), c_textual_marker_current
+                print "Rare typeError Happened @ %s: \n" %file_path, c.get('refid'), c_textual_marker
 
             current_cross_ref_pos += 1
 
@@ -276,7 +199,6 @@ for f in files:
                     c_ref_info_being_added['citation_context'] = citation_context
                     c_ref_info_being_added['DEBUG-blockContent'] = block_content
             c_ref_info.append(c_ref_info_being_added)
-            # print c_ref_info
 
         """
         STEP 5
@@ -315,11 +237,12 @@ for f in files:
         """
         g_citation_filename = os.path.join(output_dir, eid + "." + RDF_EXTENSION )
         graph_of_citation_contexts.serialize(destination=g_citation_filename, format='turtle')
-        number_of_papers += 1
 
         exec_t = time.time() - start_time
-        print("--- in %s seconds ---\n" %exec_t)
+        print("--- %s processed in %s seconds ---\n" % (eid, exec_t))
         total_time = total_time + exec_t
+
+        number_of_papers += 1
 
         """"
         Summary
@@ -331,7 +254,6 @@ for f in files:
             for c in c_ref_info:
                 citation_contexts_summary = c['positionNumber'] + " | " + c['positionNumberOfBibliographicReference'] + " | " + c['sentenceid'] + " | " + c["citation_context"] + " | " + c['DEBUG-blockContent'] + "\n"
                 citation_contexts_summary = citation_contexts_summary.encode('ascii', 'ignore')
-                #print citation_contexts_summary
                 sf.write(citation_contexts_summary)
         sf.close()
 
@@ -341,13 +263,56 @@ for f in files:
         # tree.write("OUTPUT_FILE.XML", pretty_print=True)
 
 if __name__ == "__main__":
-    print "%d Papers have been processed" %number_of_papers
+    # set/check input & output directories
+    try:
+        arg1 = sys.argv[1]
+        arg2 = sys.argv[2]
+    except IndexError:
+        print "Usage: \tpython ccex.py <input_directory_name> <output_directory_name>"
+        sys.exit(1)
+
+    input_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), arg1)
+    output_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), arg2)
+
+    if not os.path.isdir(input_dir):
+        print(
+        "Invalid input directory: '%s' is not a valid direcotry, please insert a valid directory name" % input_dir)
+        sys.exit(1)
+
+    if not os.path.exists(output_dir):
+        print "Making directory %s as output" % output_dir
+        os.makedirs(output_dir)
+
+    check_permission(input_dir, output_dir)
+
+    all_files = os.listdir(input_dir)
+    files = []
+
+    # keep only XML files
+    for f in all_files:
+        f_name, f_extension = os.path.splitext(f)
+        if f_extension == '.xml':
+            files.append(f)
+
+    # counters
+    total_time = 0
+    number_of_papers = 0
+    count_remove_preserve = 0
+    count_remove_all = 0
+    papers_with_block_detect_error = []
+    papers_with_no_crossrefs = []
+
+    # call xml_to_rdf function with list of all files
+    xml_to_rdf(files)
+
+    # reports
     print "Total execution time: %s seconds" %total_time
-    print "%d papers with no cross-ref :\n" %len(papers_with_no_crossrefs)
+    print "Number of processed papers: %d" %number_of_papers
+    print "Number of papers with no cross-ref: %d\n" %len(papers_with_no_crossrefs)
     for p in papers_with_no_crossrefs:
         print "\t", p
     if papers_with_block_detect_error:
-        print "\nBlock detection erros happened %d times" %len(papers_with_block_detect_error)
+        print "Block detection erros happened %d times" %len(papers_with_block_detect_error)
         for p in papers_with_block_detect_error:
             print "\t", p
-    print "Removed %d cross-refs\nPreserve function used %d times" %(count_remove_all, count_remove_preserve)
+    print "# Cross-refs Rremoved: %d \n# Preserve function used: %d times" %(count_remove_all, count_remove_preserve)
